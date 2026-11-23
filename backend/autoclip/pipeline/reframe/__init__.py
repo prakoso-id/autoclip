@@ -33,8 +33,8 @@ from .croppath import (
 )
 from .faces import FaceDetectionUnavailable, FaceObservation, sample_faces
 from .scenes import Shot, detect_shots
-from .smoothing import SmoothingConfig, smooth_series
-from .speaker import assign_speakers, map_tracks_to_speakers
+from .smoothing import SmoothingConfig, plan_camera_path
+from .speaker import SpeakerAssignment, assign_speakers, map_tracks_to_speakers_multi
 from .tracker import FaceTrack, build_tracks
 
 log = logging.getLogger(__name__)
@@ -64,6 +64,10 @@ FIT_IF_SPREAD_EXCEEDS = 0.95
 #: feeling like a still image. Off by default — see the note in export._zoom_filter.
 GENERAL_ZOOM = 0.0
 
+#: Segments shorter than this are absorbed into a neighbour so rapid cuts
+#: (< 1.5s) never create jarring speaker ping-ponging.
+MIN_SEGMENT_S = 1.5
+
 
 @dataclass
 class ReframeConfig:
@@ -73,6 +77,9 @@ class ReframeConfig:
     smoothing: SmoothingConfig | None = None
     #: Skip face detection entirely and centre-crop everything.
     centre_only: bool = False
+    #: Prefer GPU-accelerated LR-ASD audio-visual active speaker detection when
+    #: ONNX models are present, falling back to MediaPipe MAR + diarization.
+    use_asd: bool = True
 
 
 def build_crop_path(
@@ -106,6 +113,31 @@ def build_crop_path(
             source_w, source_h, duration, aspect_w=config.aspect_w, aspect_h=config.aspect_h
         )
 
+    # Primary path: audio-visual LR-ASD (YuNet/UltraFace + LR-ASD on ONNX CUDA).
+    if config.use_asd:
+        asd_segments = _try_build_asd_segments(
+            video,
+            start_s=start_s,
+            end_s=end_s,
+            duration=duration,
+            source_w=source_w,
+            source_h=source_h,
+            crop_w=crop_w,
+            crop_h=crop_h,
+            has_audio=info.has_audio,
+            config=config,
+        )
+        if asd_segments is not None:
+            return _finalize_crop_path(
+                asd_segments,
+                video_name=video.name,
+                source_w=source_w,
+                source_h=source_h,
+                duration=duration,
+                config=config,
+            )
+
+    # Fallback path: MediaPipe FaceLandmarker + PySceneDetect + diarization/MAR.
     try:
         observations = sample_faces(
             video, start_s=start_s, end_s=end_s, sample_fps=config.sample_fps
@@ -136,7 +168,7 @@ def build_crop_path(
     shots = detect_shots(video, start_s=start_s, end_s=end_s)
 
     turns = _clip_relative_turns(transcript, start_s, end_s)
-    speaker_map = map_tracks_to_speakers(tracks, turns) if turns else {}
+    speaker_map = map_tracks_to_speakers_multi(tracks, turns) if turns else {}
 
     segments: list[CropSegment] = []
     for shot in shots:
@@ -154,27 +186,212 @@ def build_crop_path(
             )
         )
 
+    return _finalize_crop_path(
+        segments,
+        video_name=video.name,
+        source_w=source_w,
+        source_h=source_h,
+        duration=duration,
+        config=config,
+    )
+
+
+def _try_build_asd_segments(
+    video: Path,
+    *,
+    start_s: float,
+    end_s: float,
+    duration: float,
+    source_w: int,
+    source_h: int,
+    crop_w: int,
+    crop_h: int,
+    has_audio: bool,
+    config: ReframeConfig,
+) -> list[CropSegment] | None:
+    """Attempt LR-ASD reframing. Returns None when ASD is unavailable or fails."""
+    from . import asd
+
+    if not asd.is_available():
+        return None
+
+    try:
+        analysis = asd.analyze_clip_asd(
+            video,
+            start_s=start_s,
+            end_s=end_s,
+            source_w=source_w,
+            source_h=source_h,
+            has_audio=has_audio,
+        )
+    except Exception as exc:
+        log.warning("LR-ASD analysis failed (%s); falling back to MediaPipe.", exc)
+        return None
+
+    if analysis is None:
+        return None
+
+    if not analysis.tracks:
+        return [
+            _general_segment(
+                start_s=0.0,
+                end_s=duration,
+                source_w=source_w,
+                source_h=source_h,
+                crop_w=crop_w,
+                crop_h=crop_h,
+            )
+        ]
+
+    face_tracks = asd.to_face_tracks(analysis, source_w, source_h)
+    assignments = asd.assignments_from_asd(analysis, face_tracks, duration)
+    return _segments_from_assignments(
+        assignments,
+        tracks=face_tracks,
+        source_w=source_w,
+        source_h=source_h,
+        crop_w=crop_w,
+        crop_h=crop_h,
+        config=config,
+    )
+
+
+def _finalize_crop_path(
+    segments: list[CropSegment],
+    *,
+    video_name: str,
+    source_w: int,
+    source_h: int,
+    duration: float,
+    config: ReframeConfig,
+) -> CropPath:
     if not segments:
         return centre_crop(
             source_w, source_h, duration, aspect_w=config.aspect_w, aspect_h=config.aspect_h
         )
 
-    # Guarantee the segments tile the clip exactly; a gap or overlap would
-    # desync the concatenated render from the audio.
+    # Guarantee the segments tile the clip exactly before smoothing/merging.
     segments[0].start_s = 0.0
     segments[-1].end_s = duration
     for index in range(len(segments) - 1):
         segments[index].end_s = segments[index + 1].start_s
 
     segments = [s for s in segments if s.duration_s > 0.01]
+    segments = coalesce_segments(segments, min_segment_s=MIN_SEGMENT_S)
+
+    if not segments:
+        return centre_crop(
+            source_w, source_h, duration, aspect_w=config.aspect_w, aspect_h=config.aspect_h
+        )
+
+    # Re-anchor endpoints cleanly after coalescing.
+    segments[0].start_s = 0.0
+    segments[-1].end_s = duration
+    for index in range(len(segments) - 1):
+        segments[index].end_s = segments[index + 1].start_s
 
     log.info(
         "Reframed %s into %d segment(s): %s",
-        video.name,
+        video_name,
         len(segments),
         ", ".join(s.strategy.value for s in segments),
     )
     return CropPath(source_width=source_w, source_height=source_h, segments=segments)
+
+
+def _segments_can_merge(a: CropSegment, b: CropSegment, *, pos_tol_px: float = 80.0) -> bool:
+    """True when two adjacent static segments have effectively identical framing."""
+    if a.strategy != b.strategy or a.width != b.width or a.height != b.height or a.fit != b.fit:
+        return False
+    if a.strategy is Strategy.GENERAL and a.zoom == b.zoom:
+        return True
+    if not (a.is_static and b.is_static and a.keyframes and b.keyframes):
+        return False
+    ka, kb = a.keyframes[0], b.keyframes[0]
+    return abs(ka.x - kb.x) <= pos_tol_px and abs(ka.y - kb.y) <= pos_tol_px
+
+
+def _extend_segment(segment: CropSegment, *, new_start: float, new_end: float) -> CropSegment:
+    """Extend a segment's time bounds, anchoring its edge keyframes so expressions cover it."""
+    keyframes = list(segment.keyframes)
+    if keyframes:
+        if segment.is_static:
+            first = keyframes[0]
+            keyframes = [CropKeyframe(t=new_start, x=first.x, y=first.y)]
+        else:
+            if keyframes[0].t > new_start:
+                keyframes.insert(0, CropKeyframe(t=new_start, x=keyframes[0].x, y=keyframes[0].y))
+            if keyframes[-1].t < new_end:
+                keyframes.append(CropKeyframe(t=new_end, x=keyframes[-1].x, y=keyframes[-1].y))
+    return CropSegment(
+        start_s=new_start,
+        end_s=new_end,
+        width=segment.width,
+        height=segment.height,
+        keyframes=keyframes,
+        strategy=segment.strategy,
+        zoom=segment.zoom,
+        fit=segment.fit,
+    )
+
+
+def coalesce_segments(
+    segments: list[CropSegment], *, min_segment_s: float = MIN_SEGMENT_S
+) -> list[CropSegment]:
+    """Merge identical neighbours and absorb micro-segments (< ``min_segment_s``).
+
+    Eliminates sub-second framing flickers (e.g. 0.2s–0.6s cuts caused by brief
+    face dropouts or false scene boundaries) without ever losing coverage.
+    """
+    if len(segments) <= 1:
+        return list(segments)
+
+    def merge_identical(items: list[CropSegment]) -> list[CropSegment]:
+        out: list[CropSegment] = [items[0]]
+        for seg in items[1:]:
+            if _segments_can_merge(out[-1], seg):
+                out[-1] = _extend_segment(out[-1], new_start=out[-1].start_s, new_end=seg.end_s)
+            else:
+                out.append(seg)
+        return out
+
+    current = merge_identical(list(segments))
+
+    # Iteratively absorb the shortest sub-threshold segment into its longer
+    # neighbour until all remaining segments are at least min_segment_s (or 1 left).
+    while len(current) > 1:
+        shortest_idx = min(range(len(current)), key=lambda i: current[i].duration_s)
+        if current[shortest_idx].duration_s >= min_segment_s:
+            break
+
+        short = current[shortest_idx]
+        if shortest_idx == 0:
+            current[1] = _extend_segment(
+                current[1], new_start=short.start_s, new_end=current[1].end_s
+            )
+            del current[0]
+        elif shortest_idx == len(current) - 1:
+            current[-2] = _extend_segment(
+                current[-2], new_start=current[-2].start_s, new_end=short.end_s
+            )
+            del current[-1]
+        else:
+            left = current[shortest_idx - 1]
+            right = current[shortest_idx + 1]
+            # Prefer merging into the longer neighbour (or identical framing).
+            if left.duration_s >= right.duration_s:
+                current[shortest_idx - 1] = _extend_segment(
+                    left, new_start=left.start_s, new_end=short.end_s
+                )
+            else:
+                current[shortest_idx + 1] = _extend_segment(
+                    right, new_start=short.start_s, new_end=right.end_s
+                )
+            del current[shortest_idx]
+
+        current = merge_identical(current)
+
+    return current
 
 
 def _clip_relative_turns(
@@ -193,26 +410,16 @@ def _clip_relative_turns(
     return turns
 
 
-def _segments_for_shot(
-    shot: Shot,
+def _segments_from_assignments(
+    assignments: list[SpeakerAssignment],
     *,
     tracks: list[FaceTrack],
-    turns: list[tuple[str, float, float]],
-    speaker_map: dict[str, FaceTrack],
     source_w: int,
     source_h: int,
     crop_w: int,
     crop_h: int,
     config: ReframeConfig,
 ) -> list[CropSegment]:
-    assignments = assign_speakers(
-        tracks,
-        shot_start_s=shot.start_s,
-        shot_end_s=shot.end_s,
-        turns=turns,
-        speaker_map=speaker_map,
-    )
-
     segments: list[CropSegment] = []
     for assignment in assignments:
         visible = [
@@ -255,8 +462,37 @@ def _segments_for_shot(
                     crop_h=crop_h,
                 )
             )
-
     return segments
+
+
+def _segments_for_shot(
+    shot: Shot,
+    *,
+    tracks: list[FaceTrack],
+    turns: list[tuple[str, float, float]],
+    speaker_map: dict[str, list[FaceTrack]],
+    source_w: int,
+    source_h: int,
+    crop_w: int,
+    crop_h: int,
+    config: ReframeConfig,
+) -> list[CropSegment]:
+    assignments = assign_speakers(
+        tracks,
+        shot_start_s=shot.start_s,
+        shot_end_s=shot.end_s,
+        turns=turns,
+        speaker_map=speaker_map,
+    )
+    return _segments_from_assignments(
+        assignments,
+        tracks=tracks,
+        source_w=source_w,
+        source_h=source_h,
+        crop_w=crop_w,
+        crop_h=crop_h,
+        config=config,
+    )
 
 
 def _track_segment(
@@ -292,28 +528,23 @@ def _track_segment(
     ]
 
     mean_face_width = sum(o.width for o in observations) / len(observations)
-    spread_x = max(x for _, x, _ in raw) - min(x for _, x, _ in raw)
 
-    # A close-up, or a subject who barely moves, is better locked than tracked.
-    should_lock = (
-        mean_face_width > crop_w * LOCK_IF_FACE_WIDER_THAN
-        or spread_x < (config.smoothing or SmoothingConfig()).dead_zone_px
-    )
-
-    if should_lock or len(raw) < 3:
-        x = sum(item[1] for item in raw) / len(raw)
-        y = sum(item[2] for item in raw) / len(raw)
+    # A close-up is always locked; otherwise plan a tripod-steady camera path
+    # that holds completely still while the speaker stays in the safe framing
+    # band and only performs smooth ease-in-out pans for real movement.
+    if mean_face_width > crop_w * LOCK_IF_FACE_WIDER_THAN or len(raw) < 3:
+        x = sorted(item[1] for item in raw)[len(raw) // 2]
+        y = sorted(item[2] for item in raw)[len(raw) // 2]
         keyframes = [CropKeyframe(t=start_s, x=x, y=y)]
     else:
-        smoothing = config.smoothing or SmoothingConfig()
-        xs = smooth_series([(t, x) for t, x, _ in raw], smoothing)
-        ys = smooth_series([(t, y) for t, _, y in raw], smoothing)
-        keyframes = [CropKeyframe(t=t, x=x, y=y) for (t, x), (_, y) in zip(xs, ys, strict=True)]
-        # Anchor the ends so the expression covers the whole segment.
-        if keyframes[0].t > start_s:
-            keyframes.insert(0, CropKeyframe(start_s, keyframes[0].x, keyframes[0].y))
-        if keyframes[-1].t < end_s:
-            keyframes.append(CropKeyframe(end_s, keyframes[-1].x, keyframes[-1].y))
+        planned = plan_camera_path(
+            raw,
+            start_s=start_s,
+            end_s=end_s,
+            crop_w=float(crop_w),
+            crop_h=float(crop_h),
+        )
+        keyframes = [CropKeyframe(t=t, x=x, y=y) for t, x, y in planned]
 
     return CropSegment(
         start_s=start_s,

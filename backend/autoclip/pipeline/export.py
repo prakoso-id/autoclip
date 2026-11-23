@@ -192,12 +192,18 @@ def encoder_args(settings: ExportSettings) -> list[str]:
             "h264_nvenc",
             "-preset",
             "p5",
+            "-tune",
+            "hq",
             "-rc",
             "vbr",
             "-cq",
             str(settings.crf),
             "-b:v",
             "0",
+            "-spatial-aq",
+            "1",
+            "-temporal-aq",
+            "1",
             "-profile:v",
             "high",
         ]
@@ -211,6 +217,13 @@ def encoder_args(settings: ExportSettings) -> list[str]:
         "-profile:v",
         "high",
     ]
+
+
+def decoder_args(settings: ExportSettings) -> list[str]:
+    """Use CUDA hardware decoding when GPU encoding is enabled and supported."""
+    if settings.prefer_hardware_encoder and report().ffmpeg.cuda_hwaccel_works:
+        return ["-hwaccel", "cuda"]
+    return []
 
 
 # --------------------------------------------------------------------------
@@ -265,47 +278,69 @@ def export_clip(
 
     # Input and output paths are ordinary argv arguments, so they stay absolute
     # and need no escaping regardless of the working directory.
-    args = [
-        # Seeking before -i decodes from the nearest keyframe and is far faster
-        # than an output-side seek; modern ffmpeg keeps it frame-accurate.
-        "-ss",
-        f"{request.start_s:.4f}",
-        "-t",
-        f"{request.duration_s:.4f}",
-        "-i",
-        str(request.source),
-        "-filter_complex",
-        filtergraph,
-        "-map",
-        "[vout]",
-        "-map",
-        "0:a?",
-        "-af",
-        build_audio_filtergraph(settings),
-        *encoder_args(settings),
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        AUDIO_BITRATE,
-        "-ar",
-        str(AUDIO_SAMPLE_RATE),
-        "-movflags",
-        "+faststart",
-        str(request.destination),
-    ]
+    def _build_args(hw_decode: list[str]) -> list[str]:
+        return [
+            *hw_decode,
+            # Seeking before -i decodes from the nearest keyframe and is far faster
+            # than an output-side seek; modern ffmpeg keeps it frame-accurate.
+            "-ss",
+            f"{request.start_s:.4f}",
+            "-t",
+            f"{request.duration_s:.4f}",
+            "-i",
+            str(request.source),
+            "-filter_complex",
+            filtergraph,
+            "-map",
+            "[vout]",
+            "-map",
+            "0:a?",
+            "-af",
+            build_audio_filtergraph(settings),
+            *encoder_args(settings),
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            AUDIO_BITRATE,
+            "-ar",
+            str(AUDIO_SAMPLE_RATE),
+            "-movflags",
+            "+faststart",
+            str(request.destination),
+        ]
 
+    hw_decode = decoder_args(settings)
     try:
         ffmpeg.run(
-            args,
+            _build_args(hw_decode),
             total_duration_s=request.duration_s,
             on_progress=on_progress,
             cancelled=cancelled,
             cwd=render_cwd,
         )
     except ffmpeg.FFmpegError as exc:
-        raise ExportError(f"Could not render {request.destination.name}.\n{exc}") from exc
+        if hw_decode:
+            log.warning(
+                "CUDA hwaccel decode failed for %s (%s); retrying with software decode.",
+                request.destination.name,
+                exc,
+            )
+            try:
+                ffmpeg.run(
+                    _build_args([]),
+                    total_duration_s=request.duration_s,
+                    on_progress=on_progress,
+                    cancelled=cancelled,
+                    cwd=render_cwd,
+                )
+            except ffmpeg.FFmpegError as retry_exc:
+                raise ExportError(
+                    f"Could not render {request.destination.name}.\n{retry_exc}"
+                ) from retry_exc
+        else:
+            raise ExportError(f"Could not render {request.destination.name}.\n{exc}") from exc
 
     if not request.destination.exists() or request.destination.stat().st_size == 0:
         raise ExportError(f"ffmpeg reported success but {request.destination.name} is empty.")

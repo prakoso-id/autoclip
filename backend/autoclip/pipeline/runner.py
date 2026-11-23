@@ -335,6 +335,11 @@ class PipelineRunner:
 
             self._emit(stage, (index + 1) / len(clips), f"Reframing clip {index + 1}")
 
+        # Release ONNX Runtime CUDA sessions before NVENC export starts.
+        from .reframe import asd
+
+        asd.release_sessions()
+
         self._finish_stage(stage)
         return crop_paths
 

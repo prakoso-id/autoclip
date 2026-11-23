@@ -7,6 +7,7 @@ trim-handle snapping all derive from it.
 
 from __future__ import annotations
 
+import gc
 import inspect
 import logging
 from collections.abc import Callable
@@ -179,10 +180,28 @@ def transcribe(
     if on_progress:
         on_progress(1.0)
 
+    # Release Whisper VRAM immediately so subsequent GPU stages (pyannote
+    # diarization, ONNX LR-ASD, NVENC) stay on GPU without hitting OOM.
+    del segments_iter
+    del model
+    _release_cuda_memory()
+
     log.info(
         "Transcribed %d words in %d segments.", len(transcript.words), len(transcript.segments)
     )
     return transcript
+
+
+def _release_cuda_memory() -> None:
+    """Best-effort GC + CUDA allocator release between heavy GPU stages."""
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -231,7 +250,11 @@ def diarize(
 
     def run_on(target: str):
         pipeline = pipeline_cls(device=target, **auth)
-        return pipeline(str(audio), min_speakers=min_speakers, max_speakers=max_speakers)
+        try:
+            return pipeline(str(audio), min_speakers=min_speakers, max_speakers=max_speakers)
+        finally:
+            del pipeline
+            _release_cuda_memory()
 
     try:
         diarization = run_on(device)
@@ -244,9 +267,7 @@ def diarize(
             try:
                 diarization = run_on("cpu")
             except Exception as cpu_exc:
-                log.warning(
-                    "Diarization failed (%s); continuing without speaker labels.", cpu_exc
-                )
+                log.warning("Diarization failed (%s); continuing without speaker labels.", cpu_exc)
                 return transcript
         else:
             log.warning("Diarization failed (%s); continuing without speaker labels.", exc)
@@ -300,8 +321,7 @@ def _is_accelerator_error(exc: Exception) -> bool:
     """True for CUDA/OOM failures that are worth retrying on the CPU."""
     message = str(exc).lower()
     return any(
-        marker in message
-        for marker in ("out of memory", "cuda", "cudnn", "gpu", "device-side")
+        marker in message for marker in ("out of memory", "cuda", "cudnn", "gpu", "device-side")
     )
 
 

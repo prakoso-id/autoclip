@@ -307,7 +307,7 @@ def _load_transcript(job_id: str) -> Transcript:
 
 
 def _crop_path_for(workspace: JobWorkspace, clip, source, ratio: str) -> CropPath:
-    """Reuse the job's cached crop path, falling back to a centre crop.
+    """Reuse the job's cached crop path, or compute one when missing.
 
     A re-export at a different ratio can't reuse a path computed for the
     original one, so the geometry is recomputed rather than stretched.
@@ -317,6 +317,22 @@ def _crop_path_for(workspace: JobWorkspace, clip, source, ratio: str) -> CropPat
         return CropPath.load(cached)
 
     aspect = {"9:16": (9, 16), "1:1": (1, 1), "16:9": (16, 9)}[ratio]
+    if source.has_video and Path(source.path).exists() and ratio == "9:16":
+        from ..pipeline.reframe import ReframeConfig, build_crop_path
+
+        transcript = None
+        if workspace.transcript.exists():
+            transcript = Transcript.load(workspace.transcript)
+        crop_path = build_crop_path(
+            Path(source.path),
+            start_s=clip.start_s,
+            end_s=clip.end_s,
+            transcript=transcript,
+            config=ReframeConfig(aspect_w=aspect[0], aspect_h=aspect[1]),
+        )
+        crop_path.save(cached)
+        return crop_path
+
     return centre_crop(
         source.width or 1920,
         source.height or 1080,

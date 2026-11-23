@@ -27,9 +27,7 @@ class TestAuthKeyword:
         assert _diarization_auth_kwargs(_TokenPipeline, "hf_test") == {"token": "hf_test"}
 
     def test_uses_use_auth_token_for_older_whisperx(self) -> None:
-        assert _diarization_auth_kwargs(_LegacyPipeline, "hf_test") == {
-            "use_auth_token": "hf_test"
-        }
+        assert _diarization_auth_kwargs(_LegacyPipeline, "hf_test") == {"use_auth_token": "hf_test"}
 
     def test_falls_back_to_token_when_signature_has_no_auth_keyword(self) -> None:
         assert _diarization_auth_kwargs(_UnknownPipeline, "hf_test") == {"token": "hf_test"}

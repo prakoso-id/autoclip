@@ -84,6 +84,8 @@ class FFmpegInfo:
     nvenc_works: bool = False
     #: Why nvenc is unusable, when it is listed but doesn't work.
     nvenc_error: str = ""
+    #: Hardware CUDA video decode (``-hwaccel cuda``) is available and working.
+    cuda_hwaccel_works: bool = False
     filters: set[str] = field(default_factory=set)
     ffprobe_found: bool = False
 
@@ -208,6 +210,9 @@ def probe_ffmpeg() -> FFmpegInfo:
     info.has_nvenc = "h264_nvenc" in encoders
     if info.has_nvenc:
         info.nvenc_works, info.nvenc_error = _probe_nvenc(exe)
+    if info.nvenc_works:
+        hwaccels = _run([exe, "-hide_banner", "-hwaccels"])
+        info.cuda_hwaccel_works = any(line.strip() == "cuda" for line in hwaccels.splitlines())
 
     filters = _run([exe, "-hide_banner", "-filters"])
     # Filter listing rows look like: " ... crop   V->V   Crop the input video."
