@@ -388,6 +388,107 @@ class TestTracking:
         assert talking.mouth_activity(0.0, 4.0) > still.mouth_activity(0.0, 4.0)
 
 
+class TestMultiTrackSpeakerMapping:
+    def _obs(self, t: float, cx: float, mar: float) -> FaceObservation:
+        return FaceObservation(
+            t=t, cx=cx, cy=400.0, width=200.0, height=260.0, eye_y=360.0, mar=mar
+        )
+
+    def test_speaker_maps_across_track_dropout_gap(self) -> None:
+        from autoclip.pipeline.reframe.speaker import (
+            assign_speakers,
+            map_tracks_to_speakers_multi,
+        )
+
+        # Speaker A appears at 0..4s, disappears for 4s (> MAX_GAP_S), reappears at 8..12s.
+        # Speaker B is present in both shots on the opposite side of the frame.
+        obs_a1 = [self._obs(i * 0.2, 400.0, 0.05 + (0.18 if i % 2 else 0.0)) for i in range(20)]
+        obs_b1 = [self._obs(i * 0.2, 1400.0, 0.05) for i in range(20)]
+        obs_a2 = [
+            self._obs(8.0 + i * 0.2, 420.0, 0.05 + (0.18 if i % 2 else 0.0)) for i in range(20)
+        ]
+        obs_b2 = [self._obs(8.0 + i * 0.2, 1420.0, 0.05) for i in range(20)]
+
+        tracks = build_tracks(obs_a1 + obs_b1 + obs_a2 + obs_b2)
+        assert len(tracks) == 4
+
+        turns = [("SPEAKER_00", 0.0, 4.0), ("SPEAKER_00", 8.0, 12.0)]
+        speaker_map = map_tracks_to_speakers_multi(tracks, turns)
+
+        assert "SPEAKER_00" in speaker_map
+        assert len(speaker_map["SPEAKER_00"]) == 2
+        # Both non-overlapping tracks on the left belong to SPEAKER_00.
+        assert all(t.mean_cx < 600.0 for t in speaker_map["SPEAKER_00"])
+
+        # Second shot (8..12s) still resolves cleanly from turns.
+        assignments = assign_speakers(
+            tracks, shot_start_s=8.0, shot_end_s=12.0, turns=turns, speaker_map=speaker_map
+        )
+        assert len(assignments) == 1
+        assert assignments[0].track is not None
+        assert assignments[0].track.mean_cx < 600.0
+
+
+class TestCoalesceSegments:
+    def test_merges_consecutive_general_segments(self) -> None:
+        from autoclip.pipeline.reframe import coalesce_segments
+
+        segs = [
+            CropSegment(0.0, 5.0, 608, 1080, [CropKeyframe(0.0, 656.0, 0.0)], Strategy.GENERAL),
+            CropSegment(5.0, 6.2, 608, 1080, [CropKeyframe(5.0, 656.0, 0.0)], Strategy.GENERAL),
+            CropSegment(6.2, 10.0, 608, 1080, [CropKeyframe(6.2, 656.0, 0.0)], Strategy.GENERAL),
+        ]
+        merged = coalesce_segments(segs, min_segment_s=0.8)
+
+        assert len(merged) == 1
+        assert merged[0].start_s == 0.0
+        assert merged[0].end_s == 10.0
+
+    def test_absorbs_micro_segments_into_neighbours(self) -> None:
+        from autoclip.pipeline.reframe import coalesce_segments
+
+        segs = [
+            CropSegment(0.0, 5.0, 608, 1080, [CropKeyframe(0.0, 200.0, 0.0)], Strategy.TRACK),
+            CropSegment(5.0, 5.3, 608, 1080, [CropKeyframe(5.0, 656.0, 0.0)], Strategy.GENERAL),
+            CropSegment(5.3, 12.0, 608, 1080, [CropKeyframe(5.3, 1000.0, 0.0)], Strategy.TRACK),
+        ]
+        merged = coalesce_segments(segs, min_segment_s=0.8)
+
+        assert len(merged) == 2
+        assert all(s.duration_s >= 0.8 for s in merged)
+        assert merged[0].start_s == 0.0
+        assert merged[-1].end_s == 12.0
+        assert merged[0].end_s == merged[1].start_s
+
+
+class TestPlanCameraPath:
+    def test_seated_speaker_sway_locks_completely_static(self) -> None:
+        # A seated host swaying +-60px inside a 608px crop must stay rock-solid.
+        samples = [(i * 0.04, 500.0 + math.sin(i * 0.15) * 60.0, 0.0) for i in range(250)]
+
+        planned = smoothing.plan_camera_path(
+            samples, start_s=0.0, end_s=10.0, crop_w=608.0, crop_h=1080.0
+        )
+
+        assert len(planned) == 1
+        assert planned[0][0] == 0.0
+        assert 440.0 <= planned[0][1] <= 560.0
+
+    def test_large_sustained_move_produces_smooth_eased_pan(self) -> None:
+        # Host stays at x=200 for 4s, then moves to x=900 for 4s.
+        samples = [(i * 0.04, 200.0 if i < 100 else 900.0, 0.0) for i in range(200)]
+
+        planned = smoothing.plan_camera_path(
+            samples, start_s=0.0, end_s=8.0, crop_w=608.0, crop_h=1080.0
+        )
+
+        assert len(planned) > 2
+        assert planned[0][1] == pytest.approx(200.0, abs=10.0)
+        assert planned[-1][1] == pytest.approx(900.0, abs=10.0)
+        # Keyframe times must be strictly increasing.
+        assert all(b[0] > a[0] for a, b in zip(planned, planned[1:], strict=False))
+
+
 def _evaluate(expression: str, t: float) -> float:
     """Evaluate an ffmpeg-style expression in Python, for test assertions only."""
     import re

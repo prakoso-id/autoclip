@@ -49,14 +49,27 @@ class SpeakerAssignment:
     ambiguous: bool = False
 
 
-def map_tracks_to_speakers(
+#: Minimum temporal overlap (seconds) to consider two tracks as simultaneous people.
+_SIMULTANEOUS_OVERLAP_S = 0.4
+
+
+def _tracks_overlap(a: FaceTrack, b: FaceTrack) -> bool:
+    """True when two tracks coexist long enough to be distinct people in frame."""
+    overlap = min(a.end_s, b.end_s) - max(a.start_s, b.start_s)
+    return overlap >= _SIMULTANEOUS_OVERLAP_S
+
+
+def map_tracks_to_speakers_multi(
     tracks: list[FaceTrack],
     turns: list[tuple[str, float, float]],
-) -> dict[str, FaceTrack]:
-    """Associate each diarized speaker label with the face most active during it.
+) -> dict[str, list[FaceTrack]]:
+    """Associate each diarized speaker with one or more non-overlapping face tracks.
 
-    Done once per clip rather than per frame: a stable mapping means turn
-    changes drive clean cuts instead of the framing hunting between faces.
+    A single speaker commonly produces multiple ``FaceTrack`` IDs over a clip
+    whenever a camera cut or brief face-detection dropout exceeds ``MAX_GAP_S``.
+    Allowing non-overlapping tracks to share a speaker label keeps turn-driven
+    framing working across cuts while preventing two simultaneously visible
+    people from being mapped to the same speaker.
 
     Preconditions:
         turns are clip-relative ``(speaker, start, end)`` tuples.
@@ -75,11 +88,12 @@ def map_tracks_to_speakers(
                 per_track[track.id] = per_track.get(track.id, 0.0) + activity * (end - start)
 
     by_id = {track.id: track for track in tracks}
-    mapping: dict[str, FaceTrack] = {}
-    claimed: set[int] = set()
+    mapping: dict[str, list[FaceTrack]] = {}
+    claimed_tracks: set[int] = set()
 
-    # Assign strongest speaker-track pairings first so two speakers can't both
-    # claim the same face while a second face goes unused.
+    # Assign strongest speaker-track pairings first. A track can only belong to
+    # one speaker, while a speaker can own multiple non-overlapping tracks
+    # (e.g. before and after a shot cut or dropout).
     ranked = sorted(
         (
             (total, speaker, track_id)
@@ -89,14 +103,32 @@ def map_tracks_to_speakers(
         reverse=True,
     )
     for _, speaker, track_id in ranked:
-        if speaker in mapping or track_id in claimed:
+        if track_id in claimed_tracks:
             continue
-        mapping[speaker] = by_id[track_id]
-        claimed.add(track_id)
+        candidate = by_id[track_id]
+        existing = mapping.get(speaker, [])
+        if any(_tracks_overlap(candidate, other) for other in existing):
+            continue
+        mapping.setdefault(speaker, []).append(candidate)
+        claimed_tracks.add(track_id)
 
     if mapping:
-        log.debug("Mapped %d speaker(s) to face tracks.", len(mapping))
+        total_tracks = sum(len(v) for v in mapping.values())
+        log.debug("Mapped %d speaker(s) across %d face track(s).", len(mapping), total_tracks)
     return mapping
+
+
+def map_tracks_to_speakers(
+    tracks: list[FaceTrack],
+    turns: list[tuple[str, float, float]],
+) -> dict[str, FaceTrack]:
+    """Associate each diarized speaker label with their strongest face track.
+
+    Kept for callers expecting a single primary track per speaker; see
+    :func:`map_tracks_to_speakers_multi` for multi-shot tracking.
+    """
+    multi = map_tracks_to_speakers_multi(tracks, turns)
+    return {speaker: group[0] for speaker, group in multi.items() if group}
 
 
 def assign_speakers(
@@ -105,7 +137,7 @@ def assign_speakers(
     shot_start_s: float,
     shot_end_s: float,
     turns: list[tuple[str, float, float]] | None = None,
-    speaker_map: dict[str, FaceTrack] | None = None,
+    speaker_map: dict[str, FaceTrack] | dict[str, list[FaceTrack]] | None = None,
 ) -> list[SpeakerAssignment]:
     """Decide which track holds the frame across a shot.
 
@@ -126,7 +158,41 @@ def assign_speakers(
         if assignments:
             return assignments
 
+    # If the clip-level mapping missed this shot's tracks (e.g. new IDs after a
+    # cut), correlate turns locally against just the faces visible in this shot.
+    if turns:
+        shot_turns = [
+            (spk, max(s, shot_start_s), min(e, shot_end_s))
+            for spk, s, e in turns
+            if min(e, shot_end_s) > max(s, shot_start_s)
+        ]
+        if shot_turns:
+            local_map = map_tracks_to_speakers_multi(visible, shot_turns)
+            if local_map:
+                assignments = _assignments_from_turns(
+                    visible, shot_start_s, shot_end_s, shot_turns, local_map
+                )
+                if assignments:
+                    return assignments
+
     return [_assignment_from_mouth_activity(visible, shot_start_s, shot_end_s)]
+
+
+def _pick_track_for_turn(
+    mapped: FaceTrack | list[FaceTrack] | None,
+    visible_ids: set[int],
+    start_s: float,
+    end_s: float,
+) -> FaceTrack | None:
+    if mapped is None:
+        return None
+    candidates = mapped if isinstance(mapped, list) else [mapped]
+    eligible = [t for t in candidates if t.id in visible_ids]
+    if not eligible:
+        return None
+    if len(eligible) == 1:
+        return eligible[0]
+    return max(eligible, key=lambda t: len(t.observations_between(start_s, end_s)))
 
 
 def _assignments_from_turns(
@@ -134,7 +200,7 @@ def _assignments_from_turns(
     shot_start_s: float,
     shot_end_s: float,
     turns: list[tuple[str, float, float]],
-    speaker_map: dict[str, FaceTrack],
+    speaker_map: dict[str, FaceTrack] | dict[str, list[FaceTrack]],
 ) -> list[SpeakerAssignment]:
     """Build assignments from diarization turns overlapping the shot."""
     visible_ids = {t.id for t in visible}
@@ -146,8 +212,10 @@ def _assignments_from_turns(
         if overlap_end <= overlap_start:
             continue
 
-        track = speaker_map.get(speaker)
-        if track is None or track.id not in visible_ids:
+        track = _pick_track_for_turn(
+            speaker_map.get(speaker), visible_ids, overlap_start, overlap_end
+        )
+        if track is None:
             continue
 
         # Extend rather than append when the same face keeps the floor, so a
