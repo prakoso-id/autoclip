@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { formatTimecode, type CaptionStyle, type CropPath, type Word } from '../api'
+import {
+  formatTimecode,
+  type CaptionStyle,
+  type CropPath,
+  type OutroSettings,
+  type Word,
+} from '../api'
 
 const VOLUME_KEY = 'autoclip.volume'
 
@@ -27,6 +33,12 @@ function readStoredVolume(): number {
  * grouping, and whether the style reads at all — the final look comes from
  * libass at export.
  */
+export interface OutroPreviewConfig {
+  settings: OutroSettings
+  videoTitle?: string
+  sourceChannel?: string | null
+}
+
 export function ClipPlayer({
   src,
   startS,
@@ -35,6 +47,7 @@ export function ClipPlayer({
   style,
   ratio,
   cropPath,
+  outro,
 }: {
   src: string
   startS: number
@@ -43,6 +56,7 @@ export function ClipPlayer({
   style: CaptionStyle | undefined
   ratio: string
   cropPath?: CropPath | null
+  outro?: OutroPreviewConfig | null
 }) {
   const video = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -120,6 +134,15 @@ export function ClipPlayer({
   const elapsed = Math.max(0, time - startS)
   const duration = Math.max(0.01, endS - startS)
 
+  const rawOutroS = outro ? Math.min(outro.settings.duration_s, duration * 0.4) : 0
+  const effOutroS = rawOutroS >= 0.5 ? rawOutroS : 0
+  const outroStart = duration - effOutroS
+  const outroFadeS = Math.min(0.35, effOutroS * 0.4)
+  const outroAlpha =
+    effOutroS > 0 && elapsed >= outroStart
+      ? Math.min(1, Math.max(0, (elapsed - outroStart) / Math.max(0.05, outroFadeS)))
+      : 0
+
   const cropStyle = cropWindowStyle(cropPath, elapsed)
   const [aspectW, aspectH] = ASPECTS[ratio] ?? ASPECTS['9:16']
   // Height alone can't bound the box: with width:100% and an aspect-ratio, a
@@ -155,7 +178,13 @@ export function ClipPlayer({
           controls={nativeControls}
         />
 
-        <CaptionOverlay words={words} time={time} style={style} />
+        <div style={{ opacity: 1 - outroAlpha }}>
+          <CaptionOverlay words={words} time={time} style={style} />
+        </div>
+
+        {outro && outroAlpha > 0 && (
+          <OutroOverlay outro={outro} alpha={outroAlpha} isPortrait={aspectH > aspectW} />
+        )}
 
         {!playing && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center">
@@ -529,4 +558,83 @@ function groupWords(words: Word[], maxWords: number): Word[][] {
   }
   if (current.length > 0) groups.push(current)
   return groups
+}
+
+function formatHandle(raw: string): string {
+  const cleaned = raw.trim()
+  if (!cleaned) return ''
+  return cleaned.startsWith('@') ? cleaned : `@${cleaned}`
+}
+
+/** Live-blurred CTA preview layered on top of the playing clip tail. */
+function OutroOverlay({
+  outro,
+  alpha,
+  isPortrait,
+}: {
+  outro: OutroPreviewConfig
+  alpha: number
+  isPortrait: boolean
+}) {
+  const { settings, videoTitle, sourceChannel } = outro
+  const ctaText = settings.cta_text.trim() || 'Tonton selengkapnya di YouTube'
+  const showTitle = settings.show_video_title && Boolean(videoTitle?.trim())
+  const ytChannel = settings.youtube_handle.trim() || (sourceChannel ?? '').trim()
+  const socials = [
+    settings.instagram_handle.trim() ? `IG ${formatHandle(settings.instagram_handle)}` : '',
+    settings.tiktok_handle.trim() ? `TikTok ${formatHandle(settings.tiktok_handle)}` : '',
+  ]
+    .filter(Boolean)
+    .join('  ·  ')
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-[10%] text-center"
+      style={{
+        opacity: alpha,
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        background:
+          'linear-gradient(180deg, rgba(8,10,14,0.54) 0%, rgba(8,10,14,0.68) 48%, rgba(8,10,14,0.54) 100%)',
+        paddingBottom: isPortrait ? '8%' : '0',
+      }}
+    >
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold tracking-wider text-white"
+        style={{ backgroundColor: settings.accent_color || '#FF0033' }}
+      >
+        <span>▶</span>
+        <span>YOUTUBE</span>
+      </span>
+
+      <p
+        className="mt-3 leading-[1.08] text-white uppercase drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]"
+        style={{
+          fontFamily: 'Anton, Impact, sans-serif',
+          fontSize: isPortrait ? 'clamp(1.1rem, 4.5vw, 1.55rem)' : 'clamp(1rem, 3vw, 1.4rem)',
+        }}
+      >
+        {ctaText}
+      </p>
+
+      {showTitle && (
+        <div className="mt-3 max-w-full rounded-lg border border-white/25 bg-white/10 px-3 py-2">
+          <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-slate-50">
+            {videoTitle}
+          </p>
+        </div>
+      )}
+
+      {ytChannel && (
+        <p className="mt-3 text-xs font-bold tracking-tight text-white/95">{ytChannel}</p>
+      )}
+
+      {socials && (
+        <>
+          <div className="mt-3 h-px w-10 bg-white/25" />
+          <p className="mt-2 text-[10px] font-medium text-slate-300/90">{socials}</p>
+        </>
+      )}
+    </div>
+  )
 }

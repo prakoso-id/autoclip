@@ -129,6 +129,17 @@ export interface ProviderStatus {
   has_key: boolean
 }
 
+export interface OutroSettings {
+  enabled: boolean
+  duration_s: number
+  cta_text: string
+  youtube_handle: string
+  show_video_title: boolean
+  instagram_handle: string
+  tiktok_handle: string
+  accent_color: string
+}
+
 export interface Settings {
   active_provider: string
   providers: Record<string, { model: string; base_url: string | null }>
@@ -146,6 +157,7 @@ export interface Settings {
     prefer_hardware_encoder: boolean
     crf: number
     write_srt: boolean
+    outro: OutroSettings
   }
   insecure_secret_storage: boolean
   keys_present: Record<string, boolean>
@@ -273,11 +285,25 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
-  exportClip: (clipId: string, ratio: string, style: string, writeSrt = false) =>
+  exportClip: (
+    clipId: string,
+    ratio: string,
+    style: string,
+    writeSrt = false,
+    includeOutro?: boolean,
+  ) =>
     request<ExportRecord>(`/api/clips/${clipId}/export`, {
       method: 'POST',
-      body: JSON.stringify({ ratio, style, write_srt: writeSrt }),
+      body: JSON.stringify({
+        ratio,
+        style,
+        write_srt: writeSrt,
+        ...(includeOutro !== undefined ? { include_outro: includeOutro } : {}),
+      }),
     }),
+
+  outroPreviewUrl: (ratio: string, version: number) =>
+    `/api/settings/outro-preview?ratio=${encodeURIComponent(ratio)}&v=${version}`,
 
   captionStyles: () => request<CaptionStyle[]>('/api/caption-styles'),
   providerStatus: () => request<ProviderStatus[]>('/api/providers/status'),

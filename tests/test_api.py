@@ -501,7 +501,10 @@ class TestOutroApi:
 
         workspace = JobWorkspace(job.id)
         Transcript(
-            words=[Word(text="hello", start=10.0, end=10.5), Word(text="world", start=10.6, end=11.0)]
+            words=[
+                Word(text="hello", start=10.0, end=10.5),
+                Word(text="world", start=10.6, end=11.0),
+            ]
         ).save(workspace.transcript)
 
         captured: list[export_module.ExportRequest] = []

@@ -6,6 +6,7 @@ fonts (Anton + Inter), so creators don't need external Canva/CapCut assets.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -52,13 +53,19 @@ def _hex_to_rgb(colour: str) -> tuple[int, int, int]:
 
 def _load_font(filename: str, size: int, *, weight: int | None = None) -> ImageFont.FreeTypeFont:
     font_path = FONT_DIR / filename
-    font = ImageFont.truetype(str(font_path), size=max(10, size))
+    clamped_size = max(10, size)
+    font = ImageFont.truetype(str(font_path), size=clamped_size)
     if weight is not None:
-        try:
-            font.set_variation_by_axes([weight])
-        except Exception:
-            # Non-variable font or FreeType without variation support.
-            pass
+        with contextlib.suppress(Exception):
+            axes = font.get_variation_axes()
+            values = [
+                weight
+                if axis["name"] == b"Weight"
+                else min(axis["maximum"], max(axis["minimum"], clamped_size))
+                for axis in axes
+            ]
+            if values:
+                font.set_variation_by_axes(values)
     return font
 
 

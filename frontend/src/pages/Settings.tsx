@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
 
-import { api, type ProviderStatus, type Settings as SettingsData, type SystemStatus } from '../api'
+import {
+  api,
+  type OutroSettings,
+  type ProviderStatus,
+  type Settings as SettingsData,
+  type SystemStatus,
+} from '../api'
 import { ErrorNote } from '../components/ErrorNote'
+
+const PREVIEW_RATIOS = ['9:16', '1:1', '16:9'] as const
 
 const SECRET_LABELS: Record<string, string> = {
   anthropic: 'Anthropic API key',
@@ -16,6 +24,8 @@ export function Settings() {
   const [system, setSystem] = useState<SystemStatus | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [saved, setSaved] = useState(false)
+  const [previewRatio, setPreviewRatio] = useState<string>('9:16')
+  const [previewVersion, setPreviewVersion] = useState(0)
 
   const reload = () => {
     void api.getSettings().then(setSettings).catch((e) => setError(e as Error))
@@ -29,11 +39,22 @@ export function Settings() {
     setError(null)
     try {
       setSettings(await api.putSettings(update))
+      setPreviewVersion((v) => v + 1)
       setSaved(true)
       setTimeout(() => setSaved(false), 1600)
     } catch (err) {
       setError(err as Error)
     }
+  }
+
+  const patchOutro = (outroPatch: Partial<OutroSettings>) => {
+    if (!settings) return
+    return patch({
+      export: {
+        ...settings.export,
+        outro: { ...settings.export.outro, ...outroPatch },
+      },
+    })
   }
 
   if (!settings) return <p className="pt-24 text-sm text-ink-500">Loading…</p>
@@ -267,6 +288,110 @@ export function Settings() {
           />
           Also write an .srt sidecar
         </label>
+      </Section>
+
+      <Section
+        title="YouTube Outro CTA"
+        note="Live-blurred overlay in the final seconds of each clip — zero added duration."
+      >
+        <div className="grid gap-8 lg:grid-cols-[1fr_14rem]">
+          <div className="space-y-5">
+            <label className="flex items-start gap-3 text-sm text-ink-200">
+              <input
+                type="checkbox"
+                checked={settings.export.outro.enabled}
+                onChange={(e) => void patchOutro({ enabled: e.target.checked })}
+                className="mt-0.5 size-4 accent-sodium-500"
+              />
+              <span>
+                Enable YouTube CTA overlay by default
+                <span className="mt-1 block text-xs text-ink-500">
+                  Blurs the moving clip tail and shows a bridge card pointing viewers to the full
+                  YouTube video. Can still be toggled per clip in Review.
+                </span>
+              </span>
+            </label>
+
+            <div className="grid gap-5 sm:grid-cols-[1fr_8rem]">
+              <Field
+                label="CTA headline"
+                value={settings.export.outro.cta_text}
+                placeholder="Tonton selengkapnya di YouTube"
+                onCommit={(value) => void patchOutro({ cta_text: value })}
+              />
+              <NumberField
+                label="Duration (s)"
+                value={settings.export.outro.duration_s}
+                onCommit={(value) =>
+                  void patchOutro({ duration_s: Math.min(8, Math.max(1, value)) })
+                }
+              />
+            </div>
+
+            <Field
+              label="YouTube channel / @handle"
+              hint="Leave empty to auto-fill from the ingested YouTube channel name."
+              value={settings.export.outro.youtube_handle}
+              placeholder="@NamaChannel"
+              onCommit={(value) => void patchOutro({ youtube_handle: value })}
+            />
+
+            <label className="flex items-center gap-3 text-sm text-ink-200">
+              <input
+                type="checkbox"
+                checked={settings.export.outro.show_video_title}
+                onChange={(e) => void patchOutro({ show_video_title: e.target.checked })}
+                className="size-4 accent-sodium-500"
+              />
+              Auto-show full YouTube video title on the card
+            </label>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field
+                label="Instagram handle (optional)"
+                value={settings.export.outro.instagram_handle}
+                placeholder="@instagram"
+                onCommit={(value) => void patchOutro({ instagram_handle: value })}
+              />
+              <Field
+                label="TikTok handle (optional)"
+                value={settings.export.outro.tiktok_handle}
+                placeholder="@tiktok"
+                onCommit={(value) => void patchOutro({ tiktok_handle: value })}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center">
+            <div className="mb-2 flex w-full items-center justify-between">
+              <span className="eyebrow">Preview</span>
+              <div className="flex gap-1">
+                {PREVIEW_RATIOS.map((ratio) => (
+                  <button
+                    key={ratio}
+                    type="button"
+                    onClick={() => setPreviewRatio(ratio)}
+                    className={[
+                      'numeric px-1.5 py-0.5 text-[11px] transition-colors',
+                      previewRatio === ratio
+                        ? 'bg-sodium-500 text-ink-950'
+                        : 'text-ink-400 hover:text-ink-100',
+                    ].join(' ')}
+                  >
+                    {ratio}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="w-full overflow-hidden border border-ink-800 bg-ink-900">
+              <img
+                src={api.outroPreviewUrl(previewRatio, previewVersion)}
+                alt="Outro CTA overlay preview"
+                className="block h-auto w-full"
+              />
+            </div>
+          </div>
+        </div>
       </Section>
 
       {system && (

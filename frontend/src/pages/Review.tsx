@@ -9,6 +9,7 @@ import {
   type Clip,
   type CropPath,
   type Job,
+  type OutroSettings,
   type Word,
 } from '../api'
 import { CaptionEditor } from '../components/CaptionEditor'
@@ -29,15 +30,26 @@ export function Review() {
   const [wordsDirty, setWordsDirty] = useState(false)
   const [savingWords, setSavingWords] = useState(false)
   const [exporting, setExporting] = useState<Set<string>>(new Set())
+  const [outroSettings, setOutroSettings] = useState<OutroSettings | null>(null)
+  const [includeOutro, setIncludeOutro] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
     if (!jobId) return
-    void Promise.all([api.getJob(jobId), api.listClips(jobId), api.captionStyles()])
-      .then(([loadedJob, loadedClips, loadedStyles]) => {
+    void Promise.all([
+      api.getJob(jobId),
+      api.listClips(jobId),
+      api.captionStyles(),
+      api.getSettings().catch(() => null),
+    ])
+      .then(([loadedJob, loadedClips, loadedStyles, loadedSettings]) => {
         setJob(loadedJob)
         setClips(loadedClips)
         setStyles(loadedStyles)
+        if (loadedSettings?.export?.outro) {
+          setOutroSettings(loadedSettings.export.outro)
+          setIncludeOutro(loadedSettings.export.outro.enabled)
+        }
         setSelectedId((current) => current ?? loadedClips[0]?.id ?? null)
       })
       .catch((err) => setError(err as Error))
@@ -123,7 +135,7 @@ export function Review() {
         patchClip(await api.patchCaptions(clip.id, { words }))
         setWordsDirty(false)
       }
-      await api.exportClip(clip.id, clip.ratio, clip.caption_style)
+      await api.exportClip(clip.id, clip.ratio, clip.caption_style, false, includeOutro)
       patchClip(await api.getClip(clip.id))
     } catch (err) {
       setError(err as Error)
@@ -221,6 +233,15 @@ export function Review() {
                   style={activeStyle}
                   ratio={selected.ratio}
                   cropPath={cropPath}
+                  outro={
+                    includeOutro && outroSettings
+                      ? {
+                          settings: outroSettings,
+                          videoTitle: job.source?.title,
+                          sourceChannel: job.source?.channel,
+                        }
+                      : null
+                  }
                 />
                 <TrimBar
                   words={words}
@@ -303,6 +324,24 @@ export function Review() {
                 </div>
 
                 <div className="border-t border-ink-800 pt-6">
+                  <label className="mb-4 flex items-center justify-between gap-3 text-sm text-ink-200">
+                    <span className="flex items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={includeOutro}
+                        onChange={(e) => setIncludeOutro(e.target.checked)}
+                        className="size-4 accent-sodium-500"
+                      />
+                      Include YouTube CTA overlay
+                    </span>
+                    <Link
+                      to="/settings"
+                      className="text-xs text-ink-500 underline underline-offset-4 hover:text-sodium-500"
+                    >
+                      configure
+                    </Link>
+                  </label>
+
                   <button
                     onClick={() => exportClip(selected)}
                     disabled={exporting.has(selected.id)}
