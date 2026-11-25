@@ -124,3 +124,57 @@ def test_write_outro_card_and_preview_png_bytes(tmp_path: Path) -> None:
     assert preview_bytes[:4] == b"\x89PNG"
     opened = Image.open(BytesIO(preview_bytes))
     assert opened.size == (540, 960)
+
+
+class TestOutroFiltergraph:
+    def _request(self, tmp_path: Path, *, duration_s: float = 5.0, outro_spec=None):
+        from autoclip.pipeline import captions, export
+        from autoclip.pipeline.reframe.croppath import centre_crop
+
+        return export.ExportRequest(
+            source=tmp_path / "src.mp4",
+            destination=tmp_path / "dst.mp4",
+            start_s=0.0,
+            end_s=duration_s,
+            crop_path=centre_crop(1280, 720, duration_s),
+            words=[],
+            style=captions.get_style("bold_pop"),
+            burn_captions=False,
+            outro=outro_spec,
+        )
+
+    def test_filtergraph_without_outro_has_no_outro_nodes(self, tmp_path: Path) -> None:
+        from autoclip.pipeline import export
+
+        graph = export.build_video_filtergraph(self._request(tmp_path), subtitle_name=None)
+        assert "boxblur=20:2" not in graph
+        assert "[vout]" in graph
+
+    def test_filtergraph_with_outro_trims_only_tail_and_overlays(self, tmp_path: Path) -> None:
+        from autoclip.pipeline import export
+
+        spec = outro.OutroCardSpec(settings=OutroSettings(enabled=True, duration_s=3.0))
+        # On a 5.0s clip, 3.0s clamps to 2.0s -> outro_start = 3.0000
+        graph = export.build_video_filtergraph(
+            self._request(tmp_path, duration_s=5.0, outro_spec=spec),
+            subtitle_name="captions.ass",
+            outro_input_index=1,
+        )
+        assert "trim=start=3.0000" in graph
+        assert "boxblur=20:2" in graph
+        assert "[1:v]overlay=0:0" in graph
+        assert "fade=t=in:st=0:d=0.3500:alpha=1" in graph
+        assert "enable='gte(t,3.0000)'" in graph
+        assert "[vout]" in graph
+
+    def test_filtergraph_skips_outro_on_very_short_clip(self, tmp_path: Path) -> None:
+        from autoclip.pipeline import export
+
+        spec = outro.OutroCardSpec(settings=OutroSettings(enabled=True, duration_s=3.0))
+        graph = export.build_video_filtergraph(
+            self._request(tmp_path, duration_s=1.0, outro_spec=spec),
+            subtitle_name=None,
+            outro_input_index=1,
+        )
+        assert "boxblur=20:2" not in graph
+        assert "[vout]" in graph

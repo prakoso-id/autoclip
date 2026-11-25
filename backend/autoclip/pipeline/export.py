@@ -18,7 +18,9 @@ from ..config import ExportSettings
 from ..system import report
 from . import captions as captions_module
 from . import ffmpeg
+from . import outro as outro_module
 from .captions import CaptionStyle
+from .outro import OutroCardSpec
 from .reframe.croppath import CropPath, segment_crop_filter
 from .transcript import Word
 
@@ -56,6 +58,7 @@ class ExportRequest:
     style: CaptionStyle
     ratio: str = "9:16"
     burn_captions: bool = True
+    outro: OutroCardSpec | None = None
 
     @property
     def duration_s(self) -> float:
@@ -89,6 +92,7 @@ def build_video_filtergraph(
     *,
     subtitle_name: str | None,
     fonts_name: str = "fonts",
+    outro_input_index: int | None = None,
 ) -> str:
     """Build the ``-filter_complex`` video chain for one clip."""
     out_w, out_h = ratio_dimensions(request.ratio)
@@ -133,12 +137,45 @@ def build_video_filtergraph(
         parts.append(f"{''.join(labels)}concat=n={len(segments)}:v=1:a=0[vcat]")
         current = "[vcat]"
 
+    eff_outro_s = (
+        outro_module.effective_outro_duration(request.outro.settings.duration_s, request.duration_s)
+        if request.outro is not None and outro_input_index is not None
+        else 0.0
+    )
+
+    if eff_outro_s <= 0.0:
+        if request.burn_captions and subtitle_name is not None:
+            # Bare relative names — ffmpeg runs with its cwd set to the render
+            # workspace, so there is nothing here that needs escaping.
+            parts.append(f"{current}ass=filename={subtitle_name}:fontsdir={fonts_name}[vout]")
+        else:
+            parts.append(f"{current}null[vout]")
+        return ";".join(parts)
+
+    outro_start = max(0.0, request.duration_s - eff_outro_s)
+    fade_s = min(outro_module.OUTRO_FADE_S, eff_outro_s * 0.4)
+
+    # Split before captions so the live-blurred outro covers captions cleanly
+    # and only the final `eff_outro_s` seconds pay the boxblur cost.
+    parts.append(f"{current}split=2[vpre_main][vpre_outro]")
     if request.burn_captions and subtitle_name is not None:
-        # Bare relative names — ffmpeg runs with its cwd set to the render
-        # workspace, so there is nothing here that needs escaping.
-        parts.append(f"{current}ass=filename={subtitle_name}:fontsdir={fonts_name}[vout]")
+        parts.append(f"[vpre_main]ass=filename={subtitle_name}:fontsdir={fonts_name}[vmain]")
     else:
-        parts.append(f"{current}null[vout]")
+        parts.append("[vpre_main]null[vmain]")
+
+    parts.append(
+        f"[vpre_outro]trim=start={outro_start:.4f},setpts=PTS-STARTPTS,"
+        f"boxblur=20:2[voutro_blur]"
+    )
+    parts.append(
+        f"[voutro_blur][{outro_input_index}:v]overlay=0:0,format=rgba,"
+        f"fade=t=in:st=0:d={fade_s:.4f}:alpha=1,"
+        f"setpts=PTS+{outro_start:.4f}/TB[voutro]"
+    )
+    parts.append(
+        f"[vmain][voutro]overlay=0:0:enable='gte(t,{outro_start:.4f})':eof_action=pass,"
+        f"format=yuv420p[vout]"
+    )
 
     return ";".join(parts)
 
@@ -270,8 +307,23 @@ def export_clip(
             ass_path, captions_module.FONT_DIR
         )
 
+    outro_png: Path | None = None
+    if (
+        request.outro is not None
+        and outro_module.effective_outro_duration(
+            request.outro.settings.duration_s, request.duration_s
+        )
+        > 0.0
+    ):
+        outro_png = outro_module.write_outro_card(
+            workspace / "outro.png", request.outro, width=out_w, height=out_h
+        )
+
     filtergraph = build_video_filtergraph(
-        request, subtitle_name=subtitle_name, fonts_name=fonts_name
+        request,
+        subtitle_name=subtitle_name,
+        fonts_name=fonts_name,
+        outro_input_index=1 if outro_png is not None else None,
     )
 
     request.destination.parent.mkdir(parents=True, exist_ok=True)
@@ -279,6 +331,7 @@ def export_clip(
     # Input and output paths are ordinary argv arguments, so they stay absolute
     # and need no escaping regardless of the working directory.
     def _build_args(hw_decode: list[str]) -> list[str]:
+        outro_args = ["-i", str(outro_png)] if outro_png is not None else []
         return [
             *hw_decode,
             # Seeking before -i decodes from the nearest keyframe and is far faster
@@ -289,6 +342,7 @@ def export_clip(
             f"{request.duration_s:.4f}",
             "-i",
             str(request.source),
+            *outro_args,
             "-filter_complex",
             filtergraph,
             "-map",

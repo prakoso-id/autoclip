@@ -389,6 +389,124 @@ class TestPathsWithSpecialCharacters:
         assert ffmpeg.probe(destination).width == 1080
 
 
+class TestOutroOverlayRender:
+    def test_outro_overlay_preserves_duration_and_changes_only_tail(
+        self, source_video, words, tmp_path
+    ) -> None:
+        from autoclip.config import OutroSettings
+        from autoclip.pipeline.outro import OutroCardSpec
+
+        plain = tmp_path / "plain.mp4"
+        with_outro = tmp_path / "with_outro.mp4"
+        spec = OutroCardSpec(
+            settings=OutroSettings(
+                enabled=True,
+                duration_s=2.0,
+                youtube_handle="@TestChannel",
+                instagram_handle="@testig",
+            ),
+            video_title="Episode Penuh di YouTube",
+        )
+
+        export.export_clip(
+            make_request(source_video, plain, centre_crop(SOURCE_W, SOURCE_H, 5.0), words),
+            work_dir=tmp_path / "work",
+        )
+        export.export_clip(
+            make_request(
+                source_video,
+                with_outro,
+                centre_crop(SOURCE_W, SOURCE_H, 5.0),
+                words,
+                outro=spec,
+            ),
+            work_dir=tmp_path / "work",
+        )
+
+        info = ffmpeg.probe(with_outro)
+        assert (info.width, info.height) == (1080, 1920)
+        assert info.has_audio
+        assert info.duration_s == pytest.approx(5.0, abs=0.35)
+
+        # Early footage before outro_start (3.0s) must stay identical; tail must visibly differ.
+        assert _frame_signature(plain, 1.0) == _frame_signature(with_outro, 1.0)
+        assert _frame_signature(plain, 4.2) != _frame_signature(with_outro, 4.2)
+
+    def test_outro_overlay_works_with_multi_segment_and_special_path(
+        self, source_video, words, tmp_path
+    ) -> None:
+        from autoclip.config import OutroSettings
+        from autoclip.pipeline.outro import OutroCardSpec
+
+        awkward = tmp_path / "My Clips (2026)" / "it's here"
+        awkward.mkdir(parents=True)
+        destination = awkward / "multi_outro.mp4"
+        crop_path = CropPath(
+            source_width=SOURCE_W,
+            source_height=SOURCE_H,
+            segments=[
+                CropSegment(
+                    start_s=0.0,
+                    end_s=2.5,
+                    width=404,
+                    height=720,
+                    keyframes=[CropKeyframe(0.0, 100.0, 0.0)],
+                    strategy=Strategy.TRACK,
+                ),
+                CropSegment(
+                    start_s=2.5,
+                    end_s=5.0,
+                    width=404,
+                    height=720,
+                    keyframes=[CropKeyframe(2.5, 700.0, 0.0)],
+                    strategy=Strategy.TRACK,
+                ),
+            ],
+        )
+        spec = OutroCardSpec(
+            settings=OutroSettings(enabled=True, duration_s=2.0),
+            video_title="Multi-segment Video",
+            source_channel="TestChannel",
+        )
+
+        export.export_clip(
+            make_request(source_video, destination, crop_path, words, outro=spec),
+            work_dir=awkward / "work",
+        )
+
+        info = ffmpeg.probe(destination)
+        assert (info.width, info.height) == (1080, 1920)
+        assert info.duration_s == pytest.approx(5.0, abs=0.35)
+
+    def test_outro_overlay_works_without_captions(
+        self, source_video, words, tmp_path
+    ) -> None:
+        from autoclip.config import OutroSettings
+        from autoclip.pipeline.outro import OutroCardSpec
+
+        destination = tmp_path / "no_caps_outro.mp4"
+        spec = OutroCardSpec(
+            settings=OutroSettings(enabled=True, duration_s=2.0),
+            video_title="No Captions Video",
+        )
+
+        export.export_clip(
+            make_request(
+                source_video,
+                destination,
+                centre_crop(SOURCE_W, SOURCE_H, 5.0),
+                words,
+                burn_captions=False,
+                outro=spec,
+            ),
+            work_dir=tmp_path / "work",
+        )
+
+        info = ffmpeg.probe(destination)
+        assert (info.width, info.height) == (1080, 1920)
+        assert info.duration_s == pytest.approx(5.0, abs=0.35)
+
+
 def _frame_signature(video: Path, timestamp: float) -> str:
     """Hash one frame's pixels, for comparing rendered output."""
     result = subprocess.run(
