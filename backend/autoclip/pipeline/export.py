@@ -154,6 +154,8 @@ def build_video_filtergraph(
 
     outro_start = max(0.0, request.duration_s - eff_outro_s)
     fade_s = min(outro_module.OUTRO_FADE_S, eff_outro_s * 0.4)
+    slide_s = min(outro_module.OUTRO_SLIDE_S, eff_outro_s * 0.5)
+    slide_px = max(24, int(min(out_w, out_h) * 0.052))
 
     # Split before captions so the live-blurred outro covers captions cleanly
     # and only the final `eff_outro_s` seconds pay the boxblur cost.
@@ -165,11 +167,12 @@ def build_video_filtergraph(
 
     parts.append(
         f"[vpre_outro]trim=start={outro_start:.4f},setpts=PTS-STARTPTS,"
-        f"boxblur=20:2[voutro_blur]"
+        f"boxblur=20:2,drawbox=x=0:y=0:w=iw:h=ih:color=0x080a10@0.58:t=fill[voutro_bg]"
     )
     parts.append(
-        f"[voutro_blur][{outro_input_index}:v]overlay=0:0,format=rgba,"
-        f"fade=t=in:st=0:d={fade_s:.4f}:alpha=1,"
+        f"[voutro_bg][{outro_input_index}:v]overlay=x=0:"
+        f"y='if(lt(t,{slide_s:.4f}),round({slide_px}*pow(1-t/{slide_s:.4f},3)),0)':shortest=1,"
+        f"format=rgba,fade=t=in:st=0:d={fade_s:.4f}:alpha=1,"
         f"setpts=PTS+{outro_start:.4f}/TB[voutro]"
     )
     parts.append(
@@ -308,15 +311,20 @@ def export_clip(
         )
 
     outro_png: Path | None = None
-    if (
-        request.outro is not None
-        and outro_module.effective_outro_duration(
+    eff_outro_s = (
+        outro_module.effective_outro_duration(
             request.outro.settings.duration_s, request.duration_s
         )
-        > 0.0
-    ):
+        if request.outro is not None
+        else 0.0
+    )
+    if request.outro is not None and eff_outro_s > 0.0:
         outro_png = outro_module.write_outro_card(
-            workspace / "outro.png", request.outro, width=out_w, height=out_h
+            workspace / "outro.png",
+            request.outro,
+            width=out_w,
+            height=out_h,
+            include_scrim=False,
         )
 
     filtergraph = build_video_filtergraph(
@@ -331,7 +339,20 @@ def export_clip(
     # Input and output paths are ordinary argv arguments, so they stay absolute
     # and need no escaping regardless of the working directory.
     def _build_args(hw_decode: list[str]) -> list[str]:
-        outro_args = ["-i", str(outro_png)] if outro_png is not None else []
+        outro_args = (
+            [
+                "-loop",
+                "1",
+                "-framerate",
+                "30",
+                "-t",
+                f"{eff_outro_s + 1.0:.4f}",
+                "-i",
+                str(outro_png),
+            ]
+            if outro_png is not None
+            else []
+        )
         return [
             *hw_decode,
             # Seeking before -i decodes from the nearest keyframe and is far faster

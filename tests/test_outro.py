@@ -51,6 +51,10 @@ def test_renders_all_ratios_as_rgba_with_scrim_and_card(width: int, height: int)
     has_red_accent = any(r > 200 and g < 60 and b < 80 and a > 200 for r, g, b, a in pixels)
     assert has_red_accent
 
+    # Foreground-only render (used for FFmpeg slide-up) must keep edges transparent.
+    fg = outro.render_outro_card(spec, width=width, height=height, include_scrim=False)
+    assert fg.getpixel((10, 10))[3] == 0
+
 
 def test_long_unicode_title_and_empty_handles_do_not_crash() -> None:
     long_title = (
@@ -162,7 +166,11 @@ class TestOutroFiltergraph:
         )
         assert "trim=start=3.0000" in graph
         assert "boxblur=20:2" in graph
-        assert "[1:v]overlay=0:0" in graph
+        assert "drawbox=x=0:y=0:w=iw:h=ih:color=0x080a10@0.58:t=fill" in graph
+        assert (
+            "[1:v]overlay=x=0:y='if(lt(t,0.4500),round(56*pow(1-t/0.4500,3)),0)':shortest=1"
+            in graph
+        )
         assert "fade=t=in:st=0:d=0.3500:alpha=1" in graph
         assert "enable='gte(t,3.0000)'" in graph
         assert "[vout]" in graph

@@ -138,10 +138,17 @@ export function ClipPlayer({
   const effOutroS = rawOutroS >= 0.5 ? rawOutroS : 0
   const outroStart = duration - effOutroS
   const outroFadeS = Math.min(0.35, effOutroS * 0.4)
+  const outroSlideS = Math.min(0.45, effOutroS * 0.5)
+  const outroElapsed = Math.max(0, elapsed - outroStart)
   const outroAlpha =
     effOutroS > 0 && elapsed >= outroStart
-      ? Math.min(1, Math.max(0, (elapsed - outroStart) / Math.max(0.05, outroFadeS)))
+      ? Math.min(1, outroElapsed / Math.max(0.05, outroFadeS))
       : 0
+  const slideProgress =
+    effOutroS > 0 && elapsed >= outroStart
+      ? Math.min(1, outroElapsed / Math.max(0.05, outroSlideS))
+      : 0
+  const outroSlidePx = Math.round(22 * Math.pow(1 - slideProgress, 3))
 
   const cropStyle = cropWindowStyle(cropPath, elapsed)
   const [aspectW, aspectH] = ASPECTS[ratio] ?? ASPECTS['9:16']
@@ -183,7 +190,12 @@ export function ClipPlayer({
         </div>
 
         {outro && outroAlpha > 0 && (
-          <OutroOverlay outro={outro} alpha={outroAlpha} isPortrait={aspectH > aspectW} />
+          <OutroOverlay
+            outro={outro}
+            alpha={outroAlpha}
+            slidePx={outroSlidePx}
+            isPortrait={aspectH > aspectW}
+          />
         )}
 
         {!playing && (
@@ -566,75 +578,146 @@ function formatHandle(raw: string): string {
   return cleaned.startsWith('@') ? cleaned : `@${cleaned}`
 }
 
-/** Live-blurred CTA preview layered on top of the playing clip tail. */
+/** Live-blurred YouTube Search Bar CTA preview layered on top of the playing clip tail. */
 function OutroOverlay({
   outro,
   alpha,
+  slidePx,
   isPortrait,
 }: {
   outro: OutroPreviewConfig
   alpha: number
+  slidePx: number
   isPortrait: boolean
 }) {
   const { settings, videoTitle, sourceChannel } = outro
-  const ctaText = settings.cta_text.trim() || 'Tonton selengkapnya di YouTube'
+  const accent = settings.accent_color || '#FF0033'
+  const ctaRaw = (settings.cta_text.trim() || 'Tonton selengkapnya di YouTube').toUpperCase()
+  const words = ctaRaw.split(/\s+/)
+  const splitIdx = words.length >= 3 ? Math.ceil(words.length * 0.6) : words.length
+  const line1 = words.slice(0, splitIdx).join(' ')
+  const line2 = words.slice(splitIdx).join(' ')
+
   const showTitle = settings.show_video_title && Boolean(videoTitle?.trim())
-  const ytChannel = settings.youtube_handle.trim() || (sourceChannel ?? '').trim()
-  const socials = [
-    settings.instagram_handle.trim() ? `IG ${formatHandle(settings.instagram_handle)}` : '',
-    settings.tiktok_handle.trim() ? `TikTok ${formatHandle(settings.tiktok_handle)}` : '',
-  ]
-    .filter(Boolean)
-    .join('  ·  ')
+  const searchQuery = settings.youtube_handle.trim() || (sourceChannel ?? '').trim() || 'YouTube'
+  const ig = formatHandle(settings.instagram_handle)
+  const tt = formatHandle(settings.tiktok_handle)
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-[10%] text-center"
+      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-[11%] text-center"
       style={{
         opacity: alpha,
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
-        background:
-          'linear-gradient(180deg, rgba(8,10,14,0.54) 0%, rgba(8,10,14,0.68) 48%, rgba(8,10,14,0.54) 100%)',
-        paddingBottom: isPortrait ? '8%' : '0',
+        background: 'rgba(8,10,16,0.58)',
+        paddingBottom: isPortrait ? '14%' : '0',
       }}
     >
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold tracking-wider text-white"
-        style={{ backgroundColor: settings.accent_color || '#FF0033' }}
+      <div
+        className="flex w-full flex-col items-center"
+        style={{ transform: `translateY(${slidePx}px)` }}
       >
-        <span>▶</span>
-        <span>YOUTUBE</span>
-      </span>
-
-      <p
-        className="mt-3 leading-[1.08] text-white uppercase drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]"
-        style={{
-          fontFamily: 'Anton, Impact, sans-serif',
-          fontSize: isPortrait ? 'clamp(1.1rem, 4.5vw, 1.55rem)' : 'clamp(1rem, 3vw, 1.4rem)',
-        }}
-      >
-        {ctaText}
-      </p>
-
-      {showTitle && (
-        <div className="mt-3 max-w-full rounded-lg border border-white/25 bg-white/10 px-3 py-2">
-          <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-slate-50">
-            {videoTitle}
-          </p>
+        {/* YouTube logo lockup */}
+        <div className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-flex h-5 w-7 items-center justify-center rounded-md text-[9px] text-white shadow-sm"
+            style={{ backgroundColor: accent }}
+          >
+            ▶
+          </span>
+          <span className="text-sm font-extrabold tracking-tight text-white">YouTube</span>
         </div>
-      )}
 
-      {ytChannel && (
-        <p className="mt-3 text-xs font-bold tracking-tight text-white/95">{ytChannel}</p>
-      )}
+        {/* Dual-tone headline */}
+        <p
+          className="mt-2.5 leading-[1.04] text-white uppercase drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]"
+          style={{
+            fontFamily: 'Anton, Impact, sans-serif',
+            fontSize: isPortrait ? 'clamp(1.2rem, 4.8vw, 1.7rem)' : 'clamp(1.05rem, 3.2vw, 1.45rem)',
+          }}
+        >
+          <span className="block">{line1}</span>
+          {line2 && (
+            <span className="block" style={{ color: '#FFD60A' }}>
+              {line2}
+            </span>
+          )}
+        </p>
 
-      {socials && (
-        <>
-          <div className="mt-3 h-px w-10 bg-white/25" />
-          <p className="mt-2 text-[10px] font-medium text-slate-300/90">{socials}</p>
-        </>
-      )}
+        {/* Elevated white YouTube Search Bar */}
+        <div className="mt-3.5 flex w-full items-center justify-between rounded-full bg-white py-1 pl-3 pr-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
+          <div className="flex min-w-0 items-center gap-2">
+            <svg
+              viewBox="0 0 24 24"
+              className="size-3.5 shrink-0 text-slate-800"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <line x1="20" y1="20" x2="16.5" y2="16.5" />
+            </svg>
+            <span className="truncate text-[11px] font-bold text-slate-900">{searchQuery}</span>
+            <span className="h-3.5 w-[1.5px] shrink-0" style={{ backgroundColor: accent }} />
+          </div>
+          <span
+            className="ml-2 inline-flex h-6 w-9 shrink-0 items-center justify-center rounded-full text-white"
+            style={{ backgroundColor: accent }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="size-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <line x1="20" y1="20" x2="16.5" y2="16.5" />
+            </svg>
+          </span>
+        </div>
+
+        {/* Clean floating title (2A) or concise cue (2B) */}
+        {showTitle ? (
+          <>
+            <p className="mt-3 line-clamp-2 max-w-[95%] text-[10px] font-semibold leading-snug text-slate-100/95">
+              “{videoTitle}”
+            </p>
+            <p className="mt-1.5 text-[9.5px] font-bold" style={{ color: '#FFD60A' }}>
+              Link video full di bio / deskripsi →
+            </p>
+          </>
+        ) : (
+          <p className="mt-2.5 text-[9.5px] font-semibold text-slate-200/90">
+            Cari channel di atas · atau klik link di bio →
+          </p>
+        )}
+
+        {/* Optional social icon pills */}
+        {(ig || tt) && (
+          <>
+            <div className="mt-3 h-px w-10 bg-white/25" />
+            <p className="mt-1.5 text-[8px] font-semibold tracking-wider text-slate-300/80">
+              FOLLOW JUGA DI
+            </p>
+            <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
+              {ig && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[9.5px] font-semibold text-slate-100">
+                  IG {ig}
+                </span>
+              )}
+              {tt && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[9.5px] font-semibold text-slate-100">
+                  TikTok {tt}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
