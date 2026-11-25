@@ -141,3 +141,59 @@ def test_config_file_is_written_under_autoclip_home(autoclip_home: Path) -> None
 
     assert paths.config_path() == autoclip_home.resolve() / "config.json"
     assert paths.config_path().exists()
+
+
+class TestOutroSettings:
+    def test_outro_defaults_and_round_trip(self) -> None:
+        settings = config.load()
+        outro = settings.export.outro
+
+        assert outro.enabled is False
+        assert outro.duration_s == 3.0
+        assert outro.cta_text == "Tonton selengkapnya di YouTube"
+        assert outro.youtube_handle == ""
+        assert outro.show_video_title is True
+        assert outro.instagram_handle == ""
+        assert outro.tiktok_handle == ""
+        assert outro.accent_color == "#FF0033"
+
+        outro.enabled = True
+        outro.duration_s = 4.0
+        outro.cta_text = "Watch full video on YouTube"
+        outro.youtube_handle = "@MyChannel"
+        outro.instagram_handle = "@myig"
+        outro.tiktok_handle = "@mytiktok"
+        outro.accent_color = "#E11D48"
+        config.save(settings)
+
+        reloaded = config.load().export.outro
+        assert reloaded.enabled is True
+        assert reloaded.duration_s == 4.0
+        assert reloaded.cta_text == "Watch full video on YouTube"
+        assert reloaded.youtube_handle == "@MyChannel"
+        assert reloaded.instagram_handle == "@myig"
+        assert reloaded.tiktok_handle == "@mytiktok"
+        assert reloaded.accent_color == "#E11D48"
+
+    def test_legacy_config_without_outro_loads_defaults(self) -> None:
+        paths.ensure_layout()
+        paths.config_path().write_text(
+            json.dumps({"export": {"ratio": "1:1", "crf": 20}}),
+            encoding="utf-8",
+        )
+
+        loaded = config.load()
+        assert loaded.export.ratio == "1:1"
+        assert loaded.export.crf == 20
+        assert loaded.export.outro.enabled is False
+        assert loaded.export.outro.duration_s == 3.0
+
+    def test_outro_rejects_out_of_range_duration_and_bad_color(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            config.OutroSettings(duration_s=0.2)
+        with pytest.raises(ValidationError):
+            config.OutroSettings(duration_s=12.0)
+        with pytest.raises(ValidationError):
+            config.OutroSettings(accent_color="not-a-color")

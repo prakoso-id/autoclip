@@ -48,8 +48,9 @@ dependencies = [
   # No upper bound: nothing here requires numpy 1.x, and capping it below 2.0
   # made the diarization extra unsatisfiable, since WhisperX requires >=2.1.
   "numpy>=1.26",
-  # Captions
+  # Captions & Outro
   "pysubs2>=1.7",
+  "pillow>=10.0",
   # Providers
   "anthropic>=0.40",
   "openai>=1.55",

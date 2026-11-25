@@ -18,11 +18,12 @@ import contextlib
 import json
 import logging
 import os
+import re
 import stat
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 from . import paths
 
@@ -82,6 +83,33 @@ class IngestSettings(BaseModel):
     prefer_youtube_captions: bool = False
 
 
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+class OutroSettings(BaseModel):
+    """Live-blurred YouTube bridge CTA overlay rendered over a clip's final seconds."""
+
+    enabled: bool = False
+    #: Overlay length in seconds at the end of the clip (no extra duration is added).
+    duration_s: float = Field(default=3.0, ge=1.0, le=8.0)
+    cta_text: str = "Tonton selengkapnya di YouTube"
+    #: Channel name or @handle. Falls back to the ingested YouTube channel when empty.
+    youtube_handle: str = ""
+    #: Show the full source video title on the card when available.
+    show_video_title: bool = True
+    instagram_handle: str = ""
+    tiktok_handle: str = ""
+    accent_color: str = "#FF0033"
+
+    @field_validator("accent_color")
+    @classmethod
+    def _validate_accent_color(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not _HEX_COLOR_RE.match(cleaned):
+            raise ValueError("accent_color must be a 6-digit hex colour like #FF0033")
+        return cleaned
+
+
 class ExportSettings(BaseModel):
     ratio: Literal["9:16", "1:1", "16:9"] = "9:16"
     caption_style: str = "bold_pop"
@@ -92,6 +120,7 @@ class ExportSettings(BaseModel):
     crf: int = 18
     #: Also write a .srt sidecar next to each exported clip.
     write_srt: bool = False
+    outro: OutroSettings = Field(default_factory=OutroSettings)
 
 
 class Settings(BaseModel):
