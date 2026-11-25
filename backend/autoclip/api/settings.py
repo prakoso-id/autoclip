@@ -6,8 +6,11 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
 from .. import config, models, system
+from ..pipeline import export as export_module
+from ..pipeline import outro as outro_module
 from ..providers import PROVIDERS, build_provider
 from ..providers.base import ProviderStatus
 from .schemas import ProviderStatusOut, SecretIn, SettingsIn, SettingsOut, SystemOut
@@ -39,6 +42,16 @@ async def get_settings() -> SettingsOut:
     return _settings_out(config.load())
 
 
+def _deep_merge(base: dict, patch: dict) -> dict:
+    merged = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 @router.put("/settings", response_model=SettingsOut)
 async def put_settings(payload: SettingsIn) -> SettingsOut:
     """Merge a partial settings update and persist it."""
@@ -57,13 +70,8 @@ async def put_settings(payload: SettingsIn) -> SettingsOut:
         if section in updates:
             current = getattr(settings, section)
             try:
-                setattr(
-                    settings,
-                    section,
-                    current.model_copy(update=updates[section]).model_validate(
-                        current.model_dump() | updates[section]
-                    ),
-                )
+                merged = _deep_merge(current.model_dump(), updates[section])
+                setattr(settings, section, type(current).model_validate(merged))
             except Exception as exc:
                 raise HTTPException(
                     status_code=400, detail=f"Invalid {section} settings: {exc}"
@@ -81,6 +89,33 @@ async def put_settings(payload: SettingsIn) -> SettingsOut:
 
     config.save(settings)
     return _settings_out(settings)
+
+
+@router.get("/settings/outro-preview")
+async def get_outro_preview(ratio: str = "9:16") -> Response:
+    """Render a WYSIWYG PNG preview of the saved YouTube outro CTA overlay."""
+    try:
+        full_w, full_h = export_module.ratio_dimensions(ratio)
+    except export_module.ExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    settings = config.load()
+    outro_settings = settings.export.outro
+    # Half-resolution keeps the Settings preview crisp and fast to serve.
+    preview_w, preview_h = full_w // 2, full_h // 2
+    spec = outro_module.OutroCardSpec(
+        settings=outro_settings,
+        video_title="Judul Video Lengkap di YouTube",
+        source_channel=outro_settings.youtube_handle.strip() or "@NamaChannel",
+    )
+    png = await asyncio.to_thread(
+        outro_module.render_outro_preview_png, spec, width=preview_w, height=preview_h
+    )
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.put("/settings/secrets", status_code=204)

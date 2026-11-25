@@ -203,6 +203,7 @@ class ExportRequestIn(BaseModel):
     ratio: Literal["9:16", "1:1", "16:9"] = "9:16"
     style: str = "bold_pop"
     write_srt: bool = False
+    include_outro: bool | None = None
 
 
 class CaptionStyleOut(BaseModel):

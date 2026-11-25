@@ -15,6 +15,7 @@ from ..db import store
 from ..db.models import Export, new_id
 from ..pipeline import captions as captions_module
 from ..pipeline import export as export_module
+from ..pipeline import outro as outro_module
 from ..pipeline.reframe.croppath import CropPath, centre_crop
 from ..pipeline.runner import JobWorkspace
 from ..pipeline.transcript import Transcript, Word
@@ -202,6 +203,21 @@ async def export_clip(clip_id: str, payload: ExportRequestIn) -> ExportOut:
         / export_module.output_filename(clip.title or f"clip-{clip.rank}", payload.ratio)
     )
 
+    use_outro = (
+        settings.export.outro.enabled
+        if payload.include_outro is None
+        else payload.include_outro
+    )
+    outro_spec = (
+        outro_module.OutroCardSpec(
+            settings=settings.export.outro,
+            video_title=source.title or None,
+            source_channel=source.channel,
+        )
+        if use_outro
+        else None
+    )
+
     request = export_module.ExportRequest(
         source=Path(source.path),
         destination=destination,
@@ -211,6 +227,7 @@ async def export_clip(clip_id: str, payload: ExportRequestIn) -> ExportOut:
         words=words,
         style=style,
         ratio=payload.ratio,
+        outro=outro_spec,
     )
 
     try:

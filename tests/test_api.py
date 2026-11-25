@@ -422,3 +422,122 @@ class TestSecretsNeverLeak:
 
         assert "DEADBEEF" not in paths.config_path().read_text(encoding="utf-8")
         assert config.get_secret("anthropic") == "sk-DEADBEEF"
+
+
+class TestOutroApi:
+    def test_nested_outro_partial_update_preserves_siblings(self, client: TestClient) -> None:
+        r1 = client.put(
+            "/api/settings",
+            json={
+                "export": {
+                    "outro": {
+                        "youtube_handle": "@MyChannel",
+                        "cta_text": "Watch full on YouTube",
+                        "duration_s": 3.5,
+                    }
+                }
+            },
+        )
+        assert r1.status_code == 200
+
+        r2 = client.put("/api/settings", json={"export": {"outro": {"enabled": True}}})
+        assert r2.status_code == 200
+
+        export_body = client.get("/api/settings").json()["export"]
+        assert export_body["ratio"] == "9:16"
+        assert export_body["loudness_lufs"] == -14.0
+        outro_body = export_body["outro"]
+        assert outro_body["enabled"] is True
+        assert outro_body["youtube_handle"] == "@MyChannel"
+        assert outro_body["cta_text"] == "Watch full on YouTube"
+        assert outro_body["duration_s"] == 3.5
+
+    def test_outro_preview_returns_png_for_valid_ratios_and_400_for_invalid(
+        self, client: TestClient
+    ) -> None:
+        ok = client.get("/api/settings/outro-preview?ratio=9:16")
+        assert ok.status_code == 200
+        assert ok.headers["content-type"] == "image/png"
+        assert ok.content[:4] == b"\x89PNG"
+
+        bad = client.get("/api/settings/outro-preview?ratio=4:3")
+        assert bad.status_code == 400
+
+    def test_export_clip_respects_include_outro_override(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from autoclip.pipeline import export as export_module
+        from autoclip.pipeline.runner import JobWorkspace
+        from autoclip.pipeline.transcript import Transcript, Word
+
+        yt_source = store.create_source(
+            Source(
+                id=new_id(),
+                type="youtube",
+                path="C:/media/yt.mp4",
+                title="Full YouTube Podcast Episode",
+                channel="Creator Channel",
+                duration_s=600.0,
+                width=1920,
+                height=1080,
+                fps=30.0,
+            )
+        )
+        job = store.create_job(Job(id=new_id(), source_id=yt_source.id, status="done"))
+        clip = Clip(
+            id=new_id(),
+            job_id=job.id,
+            rank=1,
+            start_s=10.0,
+            end_s=40.0,
+            start_word=0,
+            end_word=1,
+            title="Highlight Clip",
+            score=92,
+        )
+        store.replace_clips(job.id, [clip])
+
+        workspace = JobWorkspace(job.id)
+        Transcript(
+            words=[Word(text="hello", start=10.0, end=10.5), Word(text="world", start=10.6, end=11.0)]
+        ).save(workspace.transcript)
+
+        captured: list[export_module.ExportRequest] = []
+
+        def fake_export(request: export_module.ExportRequest, **kwargs):
+            captured.append(request)
+            request.destination.parent.mkdir(parents=True, exist_ok=True)
+            request.destination.write_bytes(b"fake-mp4")
+            return request.destination
+
+        monkeypatch.setattr(export_module, "export_clip", fake_export)
+
+        # Global enabled=True + include_outro=False -> suppressed.
+        client.put("/api/settings", json={"export": {"outro": {"enabled": True}}})
+        resp = client.post(
+            f"/api/clips/{clip.id}/export",
+            json={"ratio": "9:16", "style": "bold_pop", "include_outro": False},
+        )
+        assert resp.status_code == 201
+        assert captured[-1].outro is None
+
+        # Global enabled=True + include_outro omitted -> inherits global True.
+        resp = client.post(
+            f"/api/clips/{clip.id}/export",
+            json={"ratio": "9:16", "style": "bold_pop"},
+        )
+        assert resp.status_code == 201
+        assert captured[-1].outro is not None
+        assert captured[-1].outro.video_title == "Full YouTube Podcast Episode"
+        assert captured[-1].outro.source_channel == "Creator Channel"
+
+        # Global enabled=False + include_outro=True -> forced on.
+        client.put("/api/settings", json={"export": {"outro": {"enabled": False}}})
+        resp = client.post(
+            f"/api/clips/{clip.id}/export",
+            json={"ratio": "9:16", "style": "bold_pop", "include_outro": True},
+        )
+        assert resp.status_code == 201
+        assert captured[-1].outro is not None
