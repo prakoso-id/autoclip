@@ -164,15 +164,13 @@ class TestOutroFiltergraph:
             subtitle_name="captions.ass",
             outro_input_index=1,
         )
-        assert "trim=start=3.0000" in graph
+        assert "trim=start=3.0000," in graph
         assert "boxblur=20:2" in graph
         assert "drawbox=x=0:y=0:w=iw:h=ih:color=0x080a10@0.58:t=fill" in graph
-        assert (
-            "[1:v]overlay=x=0:y='if(lt(t,0.4500),round(56*pow(1-t/0.4500,3)),0)':shortest=1"
-            in graph
-        )
-        assert "fade=t=in:st=0:d=0.3500:alpha=1" in graph
-        assert "enable='gte(t,3.0000)'" in graph
+        assert "[1:v]setpts=PTS+3.0000/TB[voutro_png]" in graph
+        assert "eof_action=repeat" in graph
+        assert "fade=t=in:st=3.0000:d=0.3500:alpha=1" in graph
+        assert "enable='gte(t,3.0000)':eof_action=repeat" in graph
         assert "[vout]" in graph
 
     def test_filtergraph_skips_outro_on_very_short_clip(self, tmp_path: Path) -> None:

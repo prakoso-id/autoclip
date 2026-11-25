@@ -432,6 +432,85 @@ class TestOutroOverlayRender:
         assert _frame_signature(plain, 1.0) == _frame_signature(with_outro, 1.0)
         assert _frame_signature(plain, 4.2) != _frame_signature(with_outro, 4.2)
 
+    def test_outro_overlay_stays_visible_on_very_last_frame(
+        self, source_video, words, tmp_path
+    ) -> None:
+        """Regression: CTA overlay must never vanish on the final frame of the exported clip."""
+        import numpy as np
+        from autoclip.config import OutroSettings
+        from autoclip.pipeline.outro import OutroCardSpec
+
+        destination = tmp_path / "last_frame_outro.mp4"
+        # Use a fractional clip duration (4.7s) where outro_start doesn't land on an exact frame
+        # boundary, which previously caused PTS-STARTPTS drift + eof_action=pass to drop the CTA
+        # on the very last frame.
+        spec = OutroCardSpec(
+            settings=OutroSettings(
+                enabled=True,
+                duration_s=2.0,
+                youtube_handle="@LastFrameCheck",
+            ),
+            video_title="Final Frame Persistence Test",
+        )
+        request = export.ExportRequest(
+            source=source_video,
+            destination=destination,
+            start_s=2.0,
+            end_s=6.7,
+            crop_path=centre_crop(SOURCE_W, SOURCE_H, 4.7),
+            words=words,
+            style=captions.get_style("bold_pop"),
+            outro=spec,
+        )
+        export.export_clip(request, work_dir=tmp_path / "work")
+
+        info = ffmpeg.probe(destination)
+        raw = subprocess.run(
+            [
+                ffmpeg.ffmpeg_path(),
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-sseof",
+                "-0.5",
+                "-i",
+                str(destination),
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "-",
+            ],
+            capture_output=True,
+            check=True,
+        ).stdout
+        frame_bytes = info.width * info.height * 3
+        n_frames = len(raw) // frame_bytes
+        assert n_frames >= 2
+        # Compare bright white search-bar pixels on the very last frame vs the previous frame.
+        prev_frame = np.frombuffer(
+            raw[(n_frames - 2) * frame_bytes : (n_frames - 1) * frame_bytes], dtype=np.uint8
+        ).reshape((info.height, info.width, 3))
+        last_frame = np.frombuffer(
+            raw[(n_frames - 1) * frame_bytes : n_frames * frame_bytes], dtype=np.uint8
+        ).reshape((info.height, info.width, 3))
+        prev_white = int(
+            np.sum(
+                (prev_frame[:, :, 0] > 235)
+                & (prev_frame[:, :, 1] > 235)
+                & (prev_frame[:, :, 2] > 235)
+            )
+        )
+        last_white = int(
+            np.sum(
+                (last_frame[:, :, 0] > 235)
+                & (last_frame[:, :, 1] > 235)
+                & (last_frame[:, :, 2] > 235)
+            )
+        )
+        assert prev_white > 40_000
+        assert last_white > 40_000
+
     def test_outro_overlay_works_with_multi_segment_and_special_path(
         self, source_video, words, tmp_path
     ) -> None:

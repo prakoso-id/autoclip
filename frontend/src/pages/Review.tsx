@@ -30,6 +30,11 @@ export function Review() {
   const [wordsDirty, setWordsDirty] = useState(false)
   const [savingWords, setSavingWords] = useState(false)
   const [exporting, setExporting] = useState<Set<string>>(new Set())
+  const [batchExport, setBatchExport] = useState<{
+    kind: 'kept' | 'all'
+    done: number
+    total: number
+  } | null>(null)
   const [outroSettings, setOutroSettings] = useState<OutroSettings | null>(null)
   const [includeOutro, setIncludeOutro] = useState(false)
   const [error, setError] = useState<Error | null>(null)
@@ -148,12 +153,33 @@ export function Review() {
     }
   }
 
-  const exportKept = async () => {
-    const targets = clips.filter((clip) => clip.status === 'kept')
-    for (const clip of targets) await exportClip(clip)
+  const exportBatch = async (targets: Clip[], kind: 'kept' | 'all') => {
+    if (targets.length === 0 || batchExport) return
+    setBatchExport({ kind, done: 0, total: targets.length })
+    try {
+      for (let i = 0; i < targets.length; i += 1) {
+        await exportClip(targets[i])
+        setBatchExport({ kind, done: i + 1, total: targets.length })
+      }
+    } finally {
+      setBatchExport(null)
+    }
   }
 
+  const exportKept = () =>
+    void exportBatch(
+      clips.filter((clip) => clip.status === 'kept'),
+      'kept',
+    )
+
+  const exportAll = () =>
+    void exportBatch(
+      clips.filter((clip) => clip.status !== 'discarded'),
+      'all',
+    )
+
   const keptCount = clips.filter((clip) => clip.status === 'kept').length
+  const exportableCount = clips.filter((clip) => clip.status !== 'discarded').length
   const activeStyle = styles.find((style) => style.key === selected?.caption_style)
 
   if (error && clips.length === 0) {
@@ -178,12 +204,27 @@ export function Review() {
           </h1>
         </div>
 
-        <div className="flex items-baseline gap-6">
-          <span className="numeric text-xs text-ink-500">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="numeric mr-2 text-xs text-ink-500">
             {clips.length} clips · {keptCount} kept
           </span>
-          <button onClick={exportKept} disabled={keptCount === 0} className="btn btn-primary">
-            Export kept
+          <button
+            onClick={exportKept}
+            disabled={keptCount === 0 || batchExport !== null}
+            className="btn btn-ghost"
+          >
+            {batchExport?.kind === 'kept'
+              ? `Exporting ${batchExport.done}/${batchExport.total}…`
+              : `Export kept (${keptCount})`}
+          </button>
+          <button
+            onClick={exportAll}
+            disabled={exportableCount === 0 || batchExport !== null}
+            className="btn btn-primary"
+          >
+            {batchExport?.kind === 'all'
+              ? `Exporting ${batchExport.done}/${batchExport.total}…`
+              : `Export all (${exportableCount})`}
           </button>
         </div>
       </div>

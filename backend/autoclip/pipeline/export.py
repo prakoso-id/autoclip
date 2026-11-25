@@ -166,17 +166,19 @@ def build_video_filtergraph(
         parts.append("[vpre_main]null[vmain]")
 
     parts.append(
-        f"[vpre_outro]trim=start={outro_start:.4f},setpts=PTS-STARTPTS,"
+        f"[vpre_outro]trim=start={outro_start:.4f},"
         f"boxblur=20:2,drawbox=x=0:y=0:w=iw:h=ih:color=0x080a10@0.58:t=fill[voutro_bg]"
     )
+    parts.append(f"[{outro_input_index}:v]setpts=PTS+{outro_start:.4f}/TB[voutro_png]")
     parts.append(
-        f"[voutro_bg][{outro_input_index}:v]overlay=x=0:"
-        f"y='if(lt(t,{slide_s:.4f}),round({slide_px}*pow(1-t/{slide_s:.4f},3)),0)':shortest=1,"
-        f"format=rgba,fade=t=in:st=0:d={fade_s:.4f}:alpha=1,"
-        f"setpts=PTS+{outro_start:.4f}/TB[voutro]"
+        f"[voutro_bg][voutro_png]overlay=x=0:"
+        f"y='if(lt(t-{outro_start:.4f},{slide_s:.4f}),"
+        f"round({slide_px}*pow(1-(t-{outro_start:.4f})/{slide_s:.4f},3)),0)':"
+        f"shortest=1,format=rgba,"
+        f"fade=t=in:st={outro_start:.4f}:d={fade_s:.4f}:alpha=1[voutro]"
     )
     parts.append(
-        f"[vmain][voutro]overlay=0:0:enable='gte(t,{outro_start:.4f})':eof_action=pass,"
+        f"[vmain][voutro]overlay=0:0:enable='gte(t,{outro_start:.4f})':eof_action=repeat,"
         f"format=yuv420p[vout]"
     )
 
@@ -346,7 +348,7 @@ def export_clip(
                 "-framerate",
                 "30",
                 "-t",
-                f"{eff_outro_s + 1.0:.4f}",
+                f"{eff_outro_s + 5.0:.4f}",
                 "-i",
                 str(outro_png),
             ]
