@@ -70,6 +70,10 @@ def exports_dir() -> Path:
     return root() / "exports"
 
 
+def compressed_dir() -> Path:
+    return root() / "compressed"
+
+
 DB_NAME = "autoclip.db"
 LEGACY_DB_NAME = "clipforge.db"
 

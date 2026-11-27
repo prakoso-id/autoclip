@@ -48,6 +48,16 @@ export interface ExportRecord {
   download_url: string
 }
 
+export interface CompressResult {
+  id: string
+  filename: string
+  original_bytes: number
+  compressed_bytes: number
+  saved_bytes: number
+  saved_percent: number
+  download_url: string
+}
+
 export type ClipStatus = 'candidate' | 'kept' | 'discarded' | 'exported'
 
 export interface Clip {
@@ -349,6 +359,13 @@ export const api = {
     request<void>(`/api/settings/secrets/${key}`, { method: 'DELETE' }),
 
   mediaUrl: (jobId: string) => `/api/jobs/${jobId}/media`,
+
+  compressVideo: (file: File, crf = 23) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('crf', String(crf))
+    return request<CompressResult>('/api/compress', { method: 'POST', body: form })
+  },
 }
 
 /** Format seconds as m:ss, or h:mm:ss past an hour. */

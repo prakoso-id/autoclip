@@ -294,12 +294,30 @@ export function Settings() {
       </Section>
 
       <Section title="Export">
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="grid gap-5 sm:grid-cols-3">
           <Select
             label="Default ratio"
             value={settings.export.ratio}
             onChange={(value) => patch({ export: { ...settings.export, ratio: value } })}
             options={['9:16', '1:1', '16:9']}
+          />
+          <Select
+            label="Quality / file size (H.264)"
+            hint="CRF 23 cuts file size ~50-65% with no visible quality loss on social media."
+            value={String(settings.export.crf)}
+            onChange={(value) =>
+              patch({ export: { ...settings.export, crf: Number(value) } })
+            }
+            options={
+              ['18', '23', '26'].includes(String(settings.export.crf))
+                ? ['18', '23', '26']
+                : [String(settings.export.crf), '18', '23', '26']
+            }
+            labels={{
+              '18': 'Master · Large (CRF 18)',
+              '23': 'Visually lossless · Social (CRF 23)',
+              '26': 'Compact · Smallest (CRF 26)',
+            }}
           />
           <NumberField
             label="Loudness target (LUFS)"

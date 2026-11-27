@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   ApiError,
   api,
+  formatBytes,
   formatDuration,
+  type CompressResult,
   type Job,
   type JobSettingsOverrides,
   type ProviderStatus,
@@ -204,8 +206,148 @@ export function Ingest() {
         </p>
       )}
 
+      <CompressTool />
+
       <RecentJobs jobs={jobs} />
     </div>
+  )
+}
+
+function CompressTool() {
+  const [crf, setCrf] = useState<number>(23)
+  const [dragging, setDragging] = useState(false)
+  const [progress, setProgress] = useState<{ current: number; total: number; name: string } | null>(
+    null,
+  )
+  const [results, setResults] = useState<CompressResult[]>([])
+  const [error, setError] = useState<ApiError | Error | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleFiles = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList)
+    if (files.length === 0 || progress !== null) return
+    setError(null)
+    try {
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i]
+        setProgress({ current: i + 1, total: files.length, name: file.name })
+        const res = await api.compressVideo(file, crf)
+        setResults((prev) => [res, ...prev])
+      }
+    } catch (err) {
+      setError(err as Error)
+    } finally {
+      setProgress(null)
+    }
+  }
+
+  return (
+    <section className="rise mt-20" style={{ animationDelay: '200ms' }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-4 border-b border-ink-800 pb-3">
+        <div>
+          <h2 className="eyebrow">Compress video · H.264 Visually Lossless</h2>
+          <p className="mt-1 text-xs text-ink-500">
+            Perkecil ukuran video 50–65% tanpa penurunan kualitas yang terlihat — cocok untuk
+            TikTok, Reels, Shorts, & WhatsApp.
+          </p>
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-ink-400">
+          <span>Mode:</span>
+          <select
+            value={crf}
+            disabled={progress !== null}
+            onChange={(e) => setCrf(Number(e.target.value))}
+            className="field w-auto cursor-pointer py-1 text-xs"
+          >
+            <option value={23} className="bg-ink-850">
+              Visually lossless (CRF 23)
+            </option>
+            <option value={26} className="bg-ink-850">
+              Extra compact (CRF 26)
+            </option>
+          </select>
+        </label>
+      </div>
+
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          if (e.dataTransfer.files.length > 0) void handleFiles(e.dataTransfer.files)
+        }}
+        onClick={() => progress === null && inputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && progress === null) {
+            inputRef.current?.click()
+          }
+        }}
+        className={[
+          'mt-4 flex min-h-28 cursor-pointer flex-col items-center justify-center gap-1.5 border border-dashed px-6 py-5 text-center transition-colors duration-200',
+          dragging
+            ? 'border-sodium-500 bg-sodium-700/10'
+            : 'border-ink-700 hover:border-ink-600',
+        ].join(' ')}
+      >
+        <span className="font-display text-xl text-ink-200">
+          {progress
+            ? `Compressing ${progress.current}/${progress.total} · ${progress.name}…`
+            : 'Drop video(s) to compress'}
+        </span>
+        <span className="text-xs text-ink-500">
+          Bisa pilih 1 atau banyak file sekaligus · mp4 · mov · mkv · webm
+        </span>
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) void handleFiles(e.target.files)
+          e.target.value = ''
+        }}
+      />
+
+      {error && (
+        <div className="mt-4 max-w-3xl">
+          <ErrorNote error={error} onDismiss={() => setError(null)} />
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <ul className="mt-4 divide-y divide-ink-850 border-t border-ink-850">
+          {results.map((item) => (
+            <li
+              key={item.id}
+              className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-ink-200">{item.filename}</p>
+                <p className="numeric mt-0.5 text-xs text-ink-500">
+                  {formatBytes(item.original_bytes)} → {formatBytes(item.compressed_bytes)}{' '}
+                  <span className="ml-1.5 text-signal-good">
+                    (-{item.saved_percent.toFixed(0)}%)
+                  </span>
+                </p>
+              </div>
+              <a href={item.download_url} download={item.filename} className="btn btn-primary">
+                Download
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
