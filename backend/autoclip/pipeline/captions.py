@@ -34,6 +34,35 @@ DEFAULT_MAX_GAP_S = 0.4
 #: output size, so a preset looks identical at 9:16, 1:1, and 16:9.
 REFERENCE_HEIGHT = 1920
 
+#: Distinct high-contrast highlight colours assigned in order of speaker
+#: appearance when a clip contains 2+ diarized speakers.
+SPEAKER_PALETTE: tuple[str, ...] = (
+    "#FFE500",  # Speaker 1: Electric Yellow
+    "#00E5FF",  # Speaker 2: Vibrant Cyan
+    "#4ADE80",  # Speaker 3: Neon Lime
+    "#FF6B6B",  # Speaker 4: Coral Red
+    "#C084FC",  # Speaker 5: Electric Lavender
+    "#FB923C",  # Speaker 6: Warm Orange
+)
+
+
+def speaker_colour_map(words: list[Word]) -> dict[str, str]:
+    """Map each speaker ID to a distinct accent colour when 2+ speakers exist.
+
+    Returns an empty dict for single-speaker or non-diarized clips so presets
+    keep their configured default accent colour.
+    """
+    seen: list[str] = []
+    for word in words:
+        if word.speaker and word.speaker not in seen:
+            seen.append(word.speaker)
+    if len(seen) < 2:
+        return {}
+    return {
+        speaker: SPEAKER_PALETTE[idx % len(SPEAKER_PALETTE)]
+        for idx, speaker in enumerate(seen)
+    }
+
 
 def hex_to_ass(colour: str, alpha: int = 0) -> pysubs2.Color:
     """Convert ``#RRGGBB`` to a pysubs2 colour.
@@ -216,8 +245,10 @@ def group_words(
 
     for index, word in enumerate(words):
         if current:
-            gap = word.start - current[-1].end
-            if gap > max_gap_s or len(current) >= max_words:
+            prev = current[-1]
+            gap = word.start - prev.end
+            speaker_changed = bool(prev.speaker and word.speaker and word.speaker != prev.speaker)
+            if speaker_changed or gap > max_gap_s or len(current) >= max_words:
                 groups.append(CaptionGroup(words=current))
                 current = []
 
@@ -267,12 +298,13 @@ def build_ass(
     subs.styles[STYLE_NAME] = _build_ass_style(style, height=height, scale=scale)
 
     groups = group_words(words, max_words=style.max_words)
+    speaker_colours = speaker_colour_map(words)
 
     for group in groups:
         if style.animation == "karaoke":
-            subs.events.append(_karaoke_event(group, style, time_offset_s))
+            subs.events.append(_karaoke_event(group, style, time_offset_s, speaker_colours))
         elif style.animation == "scale" and style.accent:
-            subs.events.extend(_per_word_events(group, style, time_offset_s))
+            subs.events.extend(_per_word_events(group, style, time_offset_s, speaker_colours))
         else:
             subs.events.append(_static_event(group, style, time_offset_s))
 
@@ -317,7 +349,12 @@ def _static_event(group: CaptionGroup, style: CaptionStyle, offset: float) -> py
     return _event(group.start, group.end, text, offset)
 
 
-def _karaoke_event(group: CaptionGroup, style: CaptionStyle, offset: float) -> pysubs2.SSAEvent:
+def _karaoke_event(
+    group: CaptionGroup,
+    style: CaptionStyle,
+    offset: float,
+    speaker_colours: dict[str, str] | None = None,
+) -> pysubs2.SSAEvent:
     r"""Build a ``\kf`` karaoke line.
 
     ``\kf`` sweeps the fill across each word over its own duration; durations
@@ -332,24 +369,31 @@ def _karaoke_event(group: CaptionGroup, style: CaptionStyle, offset: float) -> p
             gap = group.words[index + 1].start - word.end
             if 0 < gap < 0.5:
                 duration_cs += round(gap * 100)
-        parts.append(f"{{\\kf{duration_cs}}}{_text_of(word, style)}")
+        spk_colour = (speaker_colours or {}).get(word.speaker or "")
+        colour_tag = f"\\2c{ass_colour_override(spk_colour)}" if spk_colour else ""
+        parts.append(f"{{{colour_tag}\\kf{duration_cs}}}{_text_of(word, style)}")
 
     return _event(group.start, group.end, " ".join(parts), offset)
 
 
 def _per_word_events(
-    group: CaptionGroup, style: CaptionStyle, offset: float
+    group: CaptionGroup,
+    style: CaptionStyle,
+    offset: float,
+    speaker_colours: dict[str, str] | None = None,
 ) -> list[pysubs2.SSAEvent]:
     """Emit one event per word, highlighting the active one.
 
     Every event renders the full group so the line stays stable on screen; only
     the emphasised word changes between them.
     """
-    accent_tag = f"\\c{ass_colour_override(style.accent or style.primary)}"
+    default_accent = style.accent or style.primary
     scale = style.scale_percent
     events: list[pysubs2.SSAEvent] = []
 
     for active, word in enumerate(group.words):
+        word_accent = (speaker_colours or {}).get(word.speaker or "") or default_accent
+        accent_tag = f"\\c{ass_colour_override(word_accent)}"
         rendered: list[str] = []
         for index, other in enumerate(group.words):
             text = _text_of(other, style)

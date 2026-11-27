@@ -65,6 +65,20 @@ class TestGrouping:
         assert groups[0].start == 0.0
         assert groups[0].end == pytest.approx(0.8 + 0.32, abs=0.01)
 
+    def test_breaks_when_speaker_changes(self) -> None:
+        words = [
+            Word(text="halo", start=0.0, end=0.2, speaker="SPEAKER_00"),
+            Word(text="bro", start=0.25, end=0.45, speaker="SPEAKER_00"),
+            Word(text="iya", start=0.50, end=0.70, speaker="SPEAKER_01"),
+            Word(text="betul", start=0.75, end=0.95, speaker="SPEAKER_01"),
+        ]
+
+        groups = captions.group_words(words, max_words=4)
+
+        assert len(groups) == 2
+        assert [w.text for w in groups[0].words] == ["halo", "bro"]
+        assert [w.text for w in groups[1].words] == ["iya", "betul"]
+
 
 class TestColour:
     def test_hex_converts_to_rgb(self) -> None:
@@ -218,3 +232,30 @@ class TestAssGeneration:
 
         assert path.exists()
         assert len(pysubs2.load(str(path), encoding="utf-8").events) > 0
+
+    def test_single_speaker_keeps_preset_accent(self) -> None:
+        words = [
+            Word(text="satu", start=0.0, end=0.3, speaker="SPEAKER_00"),
+            Word(text="dua", start=0.35, end=0.65, speaker="SPEAKER_00"),
+        ]
+        style = captions.get_style("boxed")  # default accent #FF4D4D
+        subs = captions.build_ass(words, style, width=1080, height=1920)
+
+        expected_tag = captions.ass_colour_override("#FF4D4D")
+        assert all(expected_tag in ev.text for ev in subs.events)
+
+    def test_multiple_speakers_get_distinct_palette_colours(self) -> None:
+        words = [
+            Word(text="aku", start=0.0, end=0.3, speaker="SPEAKER_02"),
+            Word(text="kamu", start=0.4, end=0.7, speaker="SPEAKER_00"),
+            Word(text="dia", start=0.8, end=1.1, speaker="SPEAKER_01"),
+        ]
+        subs = captions.build_ass(words, captions.get_style("bold_pop"), width=1080, height=1920)
+
+        assert len(subs.events) == 3
+        c0 = captions.ass_colour_override(captions.SPEAKER_PALETTE[0])
+        c1 = captions.ass_colour_override(captions.SPEAKER_PALETTE[1])
+        c2 = captions.ass_colour_override(captions.SPEAKER_PALETTE[2])
+        assert c0 in subs.events[0].text
+        assert c1 in subs.events[1].text
+        assert c2 in subs.events[2].text

@@ -490,6 +490,31 @@ function SpeakerIcon({ silent, level }: { silent: boolean; level: number }) {
   )
 }
 
+/** Distinct speaker highlight palette matching autoclip.pipeline.captions.SPEAKER_PALETTE. */
+export const SPEAKER_PALETTE = [
+  '#FFE500',
+  '#00E5FF',
+  '#4ADE80',
+  '#FF6B6B',
+  '#C084FC',
+  '#FB923C',
+] as const
+
+export function buildSpeakerColorMap(words: Word[]): Map<string, string> {
+  const seen: string[] = []
+  for (const word of words) {
+    if (word.speaker && !seen.includes(word.speaker)) {
+      seen.push(word.speaker)
+    }
+  }
+  const map = new Map<string, string>()
+  if (seen.length < 2) return map
+  seen.forEach((speaker, idx) => {
+    map.set(speaker, SPEAKER_PALETTE[idx % SPEAKER_PALETTE.length])
+  })
+  return map
+}
+
 /** Group words the way the ASS generator does, then show the active group. */
 function CaptionOverlay({
   words,
@@ -506,6 +531,7 @@ function CaptionOverlay({
   const active = groups.find((group) => time >= group[0].start && time <= group[group.length - 1].end)
   if (!active) return null
 
+  const speakerColors = buildSpeakerColorMap(words)
   const { primary, accent, allCaps, outlineWidth, boxed, marginRatio, sizeRatio } = style.preview
 
   return (
@@ -530,13 +556,14 @@ function CaptionOverlay({
       >
         {active.map((word, index) => {
           const isActive = time >= word.start && time <= word.end
+          const wordAccent = (word.speaker && speakerColors.get(word.speaker)) || accent
           return (
             <span
               key={`${word.start}-${index}`}
               style={{
-                color: isActive && accent ? accent : undefined,
+                color: isActive && wordAccent ? wordAccent : undefined,
                 display: 'inline-block',
-                transform: isActive && accent ? 'scale(1.08)' : undefined,
+                transform: isActive && wordAccent ? 'scale(1.08)' : undefined,
                 transition: 'transform 120ms cubic-bezier(0.16,1,0.3,1)',
                 marginInline: '0.14em',
               }}
@@ -556,8 +583,10 @@ function groupWords(words: Word[], maxWords: number): Word[][] {
 
   for (const [index, word] of words.entries()) {
     if (current.length > 0) {
-      const gap = word.start - current[current.length - 1].end
-      if (gap > 0.4 || current.length >= maxWords) {
+      const prev = current[current.length - 1]
+      const gap = word.start - prev.end
+      const speakerChanged = Boolean(prev.speaker && word.speaker && word.speaker !== prev.speaker)
+      if (speakerChanged || gap > 0.4 || current.length >= maxWords) {
         groups.push(current)
         current = []
       }
