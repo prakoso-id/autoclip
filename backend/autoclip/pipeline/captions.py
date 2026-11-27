@@ -37,12 +37,24 @@ REFERENCE_HEIGHT = 1920
 #: Distinct high-contrast highlight colours assigned in order of speaker
 #: appearance when a clip contains 2+ diarized speakers.
 SPEAKER_PALETTE: tuple[str, ...] = (
-    "#FFE500",  # Speaker 1: Electric Yellow
-    "#00E5FF",  # Speaker 2: Vibrant Cyan
-    "#4ADE80",  # Speaker 3: Neon Lime
-    "#FF6B6B",  # Speaker 4: Coral Red
-    "#C084FC",  # Speaker 5: Electric Lavender
-    "#FB923C",  # Speaker 6: Warm Orange
+    "#FFE500",  # Speaker 1 active: Electric Yellow
+    "#00E5FF",  # Speaker 2 active: Vibrant Cyan
+    "#4ADE80",  # Speaker 3 active: Neon Lime
+    "#FF6B6B",  # Speaker 4 active: Coral Red
+    "#C084FC",  # Speaker 5 active: Electric Lavender
+    "#FB923C",  # Speaker 6 active: Warm Orange
+)
+
+#: Line-level tint for inactive words in a multi-speaker clip, so viewers can
+#: tell speakers apart at a glance from the whole subtitle line rather than
+#: waiting for a single 0.2s active word flash.
+SPEAKER_BASE_PALETTE: tuple[str, ...] = (
+    "#FFFFFF",  # Speaker 1 base: Crisp White
+    "#A5F3FC",  # Speaker 2 base: Ice Cyan
+    "#BBF7D0",  # Speaker 3 base: Mint Lime
+    "#FECDD3",  # Speaker 4 base: Soft Rose
+    "#E9D5FF",  # Speaker 5 base: Soft Lavender
+    "#FED7AA",  # Speaker 6 base: Warm Peach
 )
 
 
@@ -60,6 +72,20 @@ def speaker_colour_map(words: list[Word]) -> dict[str, str]:
         return {}
     return {
         speaker: SPEAKER_PALETTE[idx % len(SPEAKER_PALETTE)]
+        for idx, speaker in enumerate(seen)
+    }
+
+
+def speaker_base_colour_map(words: list[Word]) -> dict[str, str]:
+    """Map each speaker ID to a line-level base tint when 2+ speakers exist."""
+    seen: list[str] = []
+    for word in words:
+        if word.speaker and word.speaker not in seen:
+            seen.append(word.speaker)
+    if len(seen) < 2:
+        return {}
+    return {
+        speaker: SPEAKER_BASE_PALETTE[idx % len(SPEAKER_BASE_PALETTE)]
         for idx, speaker in enumerate(seen)
     }
 
@@ -299,12 +325,15 @@ def build_ass(
 
     groups = group_words(words, max_words=style.max_words)
     speaker_colours = speaker_colour_map(words)
+    speaker_bases = speaker_base_colour_map(words)
 
     for group in groups:
         if style.animation == "karaoke":
             subs.events.append(_karaoke_event(group, style, time_offset_s, speaker_colours))
         elif style.animation == "scale" and style.accent:
-            subs.events.extend(_per_word_events(group, style, time_offset_s, speaker_colours))
+            subs.events.extend(
+                _per_word_events(group, style, time_offset_s, speaker_colours, speaker_bases)
+            )
         else:
             subs.events.append(_static_event(group, style, time_offset_s))
 
@@ -381,6 +410,7 @@ def _per_word_events(
     style: CaptionStyle,
     offset: float,
     speaker_colours: dict[str, str] | None = None,
+    speaker_bases: dict[str, str] | None = None,
 ) -> list[pysubs2.SSAEvent]:
     """Emit one event per word, highlighting the active one.
 
@@ -400,7 +430,12 @@ def _per_word_events(
             if index == active:
                 rendered.append(f"{{{accent_tag}\\fscx{scale}\\fscy{scale}}}{text}{{\\r}}")
             else:
-                rendered.append(text)
+                base_hex = (speaker_bases or {}).get(other.speaker or "")
+                if base_hex and base_hex.upper() != style.primary.upper():
+                    base_tag = f"\\c{ass_colour_override(base_hex)}"
+                    rendered.append(f"{{{base_tag}}}{text}{{\\r}}")
+                else:
+                    rendered.append(text)
 
         # Hold the last word until the group ends so the caption doesn't blink
         # out early when a word's measured end precedes the next word's start.

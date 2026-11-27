@@ -259,3 +259,80 @@ class TestAssGeneration:
         assert c0 in subs.events[0].text
         assert c1 in subs.events[1].text
         assert c2 in subs.events[2].text
+
+    def test_multi_speaker_events_tint_inactive_words_by_speaker(self) -> None:
+        words = [
+            Word(text="halo", start=0.0, end=0.3, speaker="SPEAKER_00"),
+            Word(text="bro", start=0.35, end=0.65, speaker="SPEAKER_00"),
+            Word(text="siap", start=0.75, end=1.05, speaker="SPEAKER_01"),
+            Word(text="gas", start=1.10, end=1.40, speaker="SPEAKER_01"),
+        ]
+        subs = captions.build_ass(words, captions.get_style("bold_pop"), width=1080, height=1920)
+
+        # Speaker 2's inactive word must carry Speaker 2's base tint so the whole
+        # line is visually distinct from Speaker 1's line, not just the 0.2s active word.
+        s2_tint = captions.ass_colour_override(captions.SPEAKER_BASE_PALETTE[1])
+        assert s2_tint in subs.events[2].text
+
+
+class TestCropPathSpeakerSync:
+    def test_assigns_three_speakers_from_three_camera_x_positions(self) -> None:
+        from autoclip.pipeline.reframe.croppath import (
+            CropKeyframe,
+            CropPath,
+            CropSegment,
+            Strategy,
+            assign_speakers_from_crop_path,
+        )
+
+        # Simulates the 3-host couch setup where audio-only pyannote collapsed
+        # everyone into SPEAKER_01, but LR-ASD reframed across 3 distinct X positions.
+        words = [
+            Word(text="kiri", start=10.0, end=10.8, speaker="SPEAKER_01"),
+            Word(text="tengah", start=12.2, end=13.0, speaker="SPEAKER_01"),
+            Word(text="kanan", start=15.0, end=15.8, speaker="SPEAKER_01"),
+            Word(text="balik-kiri", start=17.5, end=18.2, speaker="SPEAKER_01"),
+        ]
+        crop_path = CropPath(
+            source_width=1920,
+            source_height=1080,
+            segments=[
+                CropSegment(0.0, 2.0, 608, 1080, [CropKeyframe(0.0, 0.0, 0.0)], Strategy.TRACK),
+                CropSegment(2.0, 4.5, 608, 1080, [CropKeyframe(2.0, 500.0, 0.0)], Strategy.TRACK),
+                CropSegment(4.5, 7.0, 608, 1080, [CropKeyframe(4.5, 1260.0, 0.0)], Strategy.TRACK),
+                CropSegment(7.0, 9.0, 608, 1080, [CropKeyframe(7.0, 20.0, 0.0)], Strategy.TRACK),
+            ],
+        )
+
+        synced = assign_speakers_from_crop_path(words, crop_path, clip_start_s=10.0)
+
+        assert [w.speaker for w in synced] == [
+            "SPEAKER_00",
+            "SPEAKER_01",
+            "SPEAKER_02",
+            "SPEAKER_00",
+        ]
+
+    def test_single_camera_position_preserves_existing_diarization(self) -> None:
+        from autoclip.pipeline.reframe.croppath import (
+            CropKeyframe,
+            CropPath,
+            CropSegment,
+            Strategy,
+            assign_speakers_from_crop_path,
+        )
+
+        words = [
+            Word(text="a", start=0.0, end=0.4, speaker="SPEAKER_00"),
+            Word(text="b", start=0.5, end=0.9, speaker="SPEAKER_01"),
+        ]
+        crop_path = CropPath(
+            source_width=1920,
+            source_height=1080,
+            segments=[
+                CropSegment(0.0, 2.0, 608, 1080, [CropKeyframe(0.0, 500.0, 0.0)], Strategy.TRACK)
+            ],
+        )
+
+        synced = assign_speakers_from_crop_path(words, crop_path, clip_start_s=0.0)
+        assert [w.speaker for w in synced] == ["SPEAKER_00", "SPEAKER_01"]

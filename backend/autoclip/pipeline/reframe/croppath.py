@@ -16,10 +16,14 @@ from __future__ import annotations
 
 import json
 import logging
+import statistics
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..transcript import Word
 
 log = logging.getLogger(__name__)
 
@@ -304,3 +308,83 @@ def segment_crop_filter(segment: CropSegment, *, relative: bool = True) -> str:
     y_expr = y_expr.replace(",", "\\,")
 
     return f"crop=w={width}:h={height}:x='{x_expr}':y='{y_expr}'"
+
+
+def assign_speakers_from_crop_path(
+    words: list[Word],
+    crop_path: CropPath,
+    *,
+    clip_start_s: float = 0.0,
+) -> list[Word]:
+    """Refine per-word speaker labels from visual LR-ASD camera segments.
+
+    When multiple speakers share a single room microphone, audio-only
+    diarization often collapses 3 hosts into 1–2 clusters, while LR-ASD frames
+    each host at a distinct horizontal ``crop.x`` position. Clustering the
+    ``TRACK`` segments by horizontal camera position keeps caption speaker
+    colours 100% in step with who the camera is actually framing.
+
+    Leaves ``words`` unchanged when fewer than 2 distinct camera positions exist.
+    """
+    if not words or not crop_path.segments:
+        return words
+
+    track_entries: list[tuple[int, CropSegment, float]] = []
+    for idx, seg in enumerate(crop_path.segments):
+        if seg.strategy == Strategy.TRACK and not seg.fit and seg.keyframes:
+            med_x = float(statistics.median(k.x for k in seg.keyframes))
+            track_entries.append((idx, seg, med_x))
+
+    if len(track_entries) < 2:
+        return words
+
+    crop_w = track_entries[0][1].width or max(1, int(crop_path.source_width * 9 / 16))
+    gap_threshold = max(140.0, crop_w * 0.28)
+
+    # 1D gap clustering along the horizontal axis.
+    sorted_by_x = sorted(track_entries, key=lambda item: item[2])
+    spatial_groups: list[list[int]] = [[sorted_by_x[0][0]]]
+    prev_x = sorted_by_x[0][2]
+    for seg_idx, _, med_x in sorted_by_x[1:]:
+        if med_x - prev_x > gap_threshold:
+            spatial_groups.append([seg_idx])
+        else:
+            spatial_groups[-1].append(seg_idx)
+        prev_x = med_x
+
+    if len(spatial_groups) < 2:
+        return words
+
+    seg_to_group: dict[int, int] = {}
+    for g_idx, seg_indices in enumerate(spatial_groups):
+        for seg_idx in seg_indices:
+            seg_to_group[seg_idx] = g_idx
+
+    # Label clusters in order of first appearance in the clip (SPEAKER_00, SPEAKER_01, ...).
+    group_to_label: dict[int, str] = {}
+    for seg_idx, _, _ in track_entries:
+        g_idx = seg_to_group[seg_idx]
+        if g_idx not in group_to_label:
+            group_to_label[g_idx] = f"SPEAKER_{len(group_to_label):02d}"
+
+    seg_to_label = {
+        seg_idx: group_to_label[g_idx] for seg_idx, g_idx in seg_to_group.items()
+    }
+
+    for word in words:
+        rel_start = max(0.0, word.start - clip_start_s)
+        rel_end = max(rel_start + 0.01, word.end - clip_start_s)
+        best_label: str | None = None
+        best_overlap = 0.0
+        for seg_idx, seg in enumerate(crop_path.segments):
+            label = seg_to_label.get(seg_idx)
+            if label is None:
+                continue
+            overlap = min(rel_end, seg.end_s) - max(rel_start, seg.start_s)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_label = label
+        if best_label is not None:
+            word.speaker = best_label
+
+    return words

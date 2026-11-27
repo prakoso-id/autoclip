@@ -16,7 +16,7 @@ from ..db.models import Export, new_id
 from ..pipeline import captions as captions_module
 from ..pipeline import export as export_module
 from ..pipeline import outro as outro_module
-from ..pipeline.reframe.croppath import CropPath, centre_crop
+from ..pipeline.reframe.croppath import CropPath, assign_speakers_from_crop_path, centre_crop
 from ..pipeline.runner import JobWorkspace
 from ..pipeline.transcript import Transcript, Word
 from .schemas import (
@@ -69,10 +69,16 @@ async def clip_words(clip_id: str) -> list[WordOut]:
 
     edit = await asyncio.to_thread(store.get_clip_edit, clip_id)
     if edit is not None and edit.edited_words:
-        return [WordOut(**word) for word in edit.edited_words]
+        words = [Word(**word) for word in edit.edited_words]
+    else:
+        transcript = await asyncio.to_thread(_load_transcript, clip.job_id)
+        words = transcript.slice(clip.start_word, clip.end_word)
 
-    transcript = await asyncio.to_thread(_load_transcript, clip.job_id)
-    words = transcript.slice(clip.start_word, clip.end_word)
+    cached_crop = JobWorkspace(clip.job_id).crop_path(clip.id)
+    if cached_crop.exists():
+        with_visual_speakers = await asyncio.to_thread(CropPath.load, cached_crop)
+        assign_speakers_from_crop_path(words, with_visual_speakers, clip_start_s=clip.start_s)
+
     return [WordOut(text=w.text, start=w.start, end=w.end, speaker=w.speaker) for w in words]
 
 

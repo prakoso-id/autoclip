@@ -205,6 +205,35 @@ export function Settings() {
             )}
           </span>
         </label>
+
+        {settings.whisper.diarization && (
+          <div className="mt-5 grid gap-5 sm:grid-cols-2">
+            <Field
+              label="Min speakers (optional)"
+              hint="E.g. 3 for a 3-host single-mic podcast."
+              value={settings.whisper.min_speakers != null ? String(settings.whisper.min_speakers) : ''}
+              placeholder="auto"
+              onCommit={(value) => {
+                const parsed = value.trim() ? Number(value.trim()) : null
+                if (parsed === null || (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 20)) {
+                  void patch({ whisper: { ...settings.whisper, min_speakers: parsed } })
+                }
+              }}
+            />
+            <Field
+              label="Max speakers (optional)"
+              hint="Leave empty for automatic detection."
+              value={settings.whisper.max_speakers != null ? String(settings.whisper.max_speakers) : ''}
+              placeholder="auto"
+              onCommit={(value) => {
+                const parsed = value.trim() ? Number(value.trim()) : null
+                if (parsed === null || (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 20)) {
+                  void patch({ whisper: { ...settings.whisper, max_speakers: parsed } })
+                }
+              }}
+            />
+          </div>
+        )}
       </Section>
 
       <Section title="Clips">

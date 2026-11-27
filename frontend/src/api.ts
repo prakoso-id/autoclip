@@ -143,7 +143,14 @@ export interface OutroSettings {
 export interface Settings {
   active_provider: string
   providers: Record<string, { model: string; base_url: string | null }>
-  whisper: { model: string; compute_type: string; language: string; diarization: boolean }
+  whisper: {
+    model: string
+    compute_type: string
+    language: string
+    diarization: boolean
+    min_speakers?: number | null
+    max_speakers?: number | null
+  }
   clips: { min_duration_s: number; max_duration_s: number; max_clips: number }
   ingest: {
     ytdlp_format: string

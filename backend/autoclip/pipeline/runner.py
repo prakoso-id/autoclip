@@ -238,7 +238,13 @@ class PipelineRunner:
             from ..config import HF_TOKEN_KEY, get_secret
 
             self._emit(stage, 0.95, "Identifying speakers")
-            transcribe.diarize(audio, transcript, hf_token=get_secret(HF_TOKEN_KEY, self.settings))
+            transcribe.diarize(
+                audio,
+                transcript,
+                hf_token=get_secret(HF_TOKEN_KEY, self.settings),
+                min_speakers=self.settings.whisper.min_speakers,
+                max_speakers=self.settings.whisper.max_speakers,
+            )
 
         transcript.save(self.workspace.transcript)
         store.upsert_transcript(
@@ -334,6 +340,22 @@ class PipelineRunner:
                 crop_paths[clip.id].save(cached)
 
             self._emit(stage, (index + 1) / len(clips), f"Reframing clip {index + 1}")
+
+        # Sync visual active-speaker turns from LR-ASD crop paths back into the
+        # transcript so caption colours match who the camera is framing.
+        from .reframe.croppath import assign_speakers_from_crop_path
+
+        transcript_updated = False
+        for clip in clips:
+            cp = crop_paths.get(clip.id)
+            if cp is not None:
+                clip_slice = transcript.slice(clip.start_word, clip.end_word)
+                before = [w.speaker for w in clip_slice]
+                assign_speakers_from_crop_path(clip_slice, cp, clip_start_s=clip.start_s)
+                if [w.speaker for w in clip_slice] != before:
+                    transcript_updated = True
+        if transcript_updated and self.workspace.transcript.exists():
+            transcript.save(self.workspace.transcript)
 
         # Release ONNX Runtime CUDA sessions before NVENC export starts.
         from .reframe import asd

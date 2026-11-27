@@ -500,7 +500,19 @@ export const SPEAKER_PALETTE = [
   '#FB923C',
 ] as const
 
-export function buildSpeakerColorMap(words: Word[]): Map<string, string> {
+export const SPEAKER_BASE_PALETTE = [
+  '#FFFFFF',
+  '#A5F3FC',
+  '#BBF7D0',
+  '#FECDD3',
+  '#E9D5FF',
+  '#FED7AA',
+] as const
+
+export function buildSpeakerColorMap(
+  words: Word[],
+  palette: readonly string[] = SPEAKER_PALETTE,
+): Map<string, string> {
   const seen: string[] = []
   for (const word of words) {
     if (word.speaker && !seen.includes(word.speaker)) {
@@ -510,7 +522,7 @@ export function buildSpeakerColorMap(words: Word[]): Map<string, string> {
   const map = new Map<string, string>()
   if (seen.length < 2) return map
   seen.forEach((speaker, idx) => {
-    map.set(speaker, SPEAKER_PALETTE[idx % SPEAKER_PALETTE.length])
+    map.set(speaker, palette[idx % palette.length])
   })
   return map
 }
@@ -531,7 +543,8 @@ function CaptionOverlay({
   const active = groups.find((group) => time >= group[0].start && time <= group[group.length - 1].end)
   if (!active) return null
 
-  const speakerColors = buildSpeakerColorMap(words)
+  const speakerColors = buildSpeakerColorMap(words, SPEAKER_PALETTE)
+  const speakerBaseColors = buildSpeakerColorMap(words, SPEAKER_BASE_PALETTE)
   const { primary, accent, allCaps, outlineWidth, boxed, marginRatio, sizeRatio } = style.preview
 
   return (
@@ -557,11 +570,12 @@ function CaptionOverlay({
         {active.map((word, index) => {
           const isActive = time >= word.start && time <= word.end
           const wordAccent = (word.speaker && speakerColors.get(word.speaker)) || accent
+          const wordBase = (word.speaker && speakerBaseColors.get(word.speaker)) || primary
           return (
             <span
               key={`${word.start}-${index}`}
               style={{
-                color: isActive && wordAccent ? wordAccent : undefined,
+                color: isActive && wordAccent ? wordAccent : wordBase,
                 display: 'inline-block',
                 transform: isActive && wordAccent ? 'scale(1.08)' : undefined,
                 transition: 'transform 120ms cubic-bezier(0.16,1,0.3,1)',

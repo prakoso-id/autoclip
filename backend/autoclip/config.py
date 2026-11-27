@@ -64,6 +64,10 @@ class WhisperSettings(BaseModel):
     #: Run WhisperX diarization to label words by speaker. Needs the
     #: ``diarization`` extra and a HuggingFace token.
     diarization: bool = False
+    #: Optional speaker-count hints for pyannote diarization (helps single-mic
+    #: multi-host setups avoid collapsing 3 speakers into 2).
+    min_speakers: int | None = Field(default=None, ge=1, le=20)
+    max_speakers: int | None = Field(default=None, ge=1, le=20)
 
 
 class ClipSettings(BaseModel):
