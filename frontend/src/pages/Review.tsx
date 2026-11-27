@@ -8,6 +8,7 @@ import {
   type CaptionStyle,
   type Clip,
   type CropPath,
+  type IntroSettings,
   type Job,
   type OutroSettings,
   type Word,
@@ -36,7 +37,11 @@ export function Review() {
     total: number
   } | null>(null)
   const [outroSettings, setOutroSettings] = useState<OutroSettings | null>(null)
+  const [introSettings, setIntroSettings] = useState<IntroSettings | null>(null)
   const [includeOutro, setIncludeOutro] = useState(false)
+  const [includeIntro, setIncludeIntro] = useState(false)
+  const [introText, setIntroText] = useState('')
+  const [includeWatermark, setIncludeWatermark] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
@@ -55,6 +60,11 @@ export function Review() {
           setOutroSettings(loadedSettings.export.outro)
           setIncludeOutro(loadedSettings.export.outro.enabled)
         }
+        if (loadedSettings?.export?.intro) {
+          setIntroSettings(loadedSettings.export.intro)
+          setIncludeIntro(loadedSettings.export.intro.enabled)
+          setIncludeWatermark(loadedSettings.export.intro.watermark_enabled)
+        }
         setSelectedId((current) => current ?? loadedClips[0]?.id ?? null)
       })
       .catch((err) => setError(err as Error))
@@ -68,6 +78,7 @@ export function Review() {
   useEffect(() => {
     if (!selected) return
     setWordsDirty(false)
+    setIntroText(selected.title || selected.hook || '')
     api
       .getClipWords(selected.id)
       .then(setWords)
@@ -140,7 +151,12 @@ export function Review() {
         patchClip(await api.patchCaptions(clip.id, { words }))
         setWordsDirty(false)
       }
-      await api.exportClip(clip.id, clip.ratio, clip.caption_style, false, includeOutro)
+      await api.exportClip(clip.id, clip.ratio, clip.caption_style, false, {
+        includeOutro,
+        includeIntro,
+        introText: clip.id === selectedId ? introText : clip.title || clip.hook || '',
+        includeWatermark,
+      })
       patchClip(await api.getClip(clip.id))
     } catch (err) {
       setError(err as Error)
@@ -177,6 +193,12 @@ export function Review() {
       clips.filter((clip) => clip.status !== 'discarded'),
       'all',
     )
+
+  const resolvedWatermarkText =
+    introSettings?.watermark_text?.trim() ||
+    outroSettings?.youtube_handle?.trim() ||
+    job?.source?.channel?.trim() ||
+    ''
 
   const keptCount = clips.filter((clip) => clip.status === 'kept').length
   const exportableCount = clips.filter((clip) => clip.status !== 'discarded').length
@@ -283,6 +305,16 @@ export function Review() {
                         }
                       : null
                   }
+                  introHook={
+                    includeIntro && introText.trim()
+                      ? {
+                          text: introText,
+                          durationS: introSettings?.duration_s ?? 3.0,
+                          accentColor: outroSettings?.accent_color ?? '#FF0033',
+                        }
+                      : null
+                  }
+                  watermarkText={includeWatermark ? resolvedWatermarkText : null}
                 />
                 <TrimBar
                   words={words}
@@ -365,23 +397,64 @@ export function Review() {
                 </div>
 
                 <div className="border-t border-ink-800 pt-6">
-                  <label className="mb-4 flex items-center justify-between gap-3 text-sm text-ink-200">
-                    <span className="flex items-center gap-2.5">
+                  <div className="mb-4 space-y-2.5">
+                    <div className="flex items-baseline justify-between">
+                      <span className="eyebrow">Overlays</span>
+                      <Link
+                        to="/settings"
+                        className="text-xs text-ink-500 underline underline-offset-4 hover:text-sodium-500"
+                      >
+                        configure
+                      </Link>
+                    </div>
+
+                    <label className="flex items-center gap-2.5 text-sm text-ink-200">
+                      <input
+                        type="checkbox"
+                        checked={includeIntro}
+                        onChange={(e) => setIncludeIntro(e.target.checked)}
+                        className="size-4 accent-sodium-500"
+                      />
+                      Intro Hook banner ({introSettings?.duration_s ?? 3}s)
+                    </label>
+
+                    {includeIntro && (
+                      <input
+                        type="text"
+                        value={introText}
+                        onChange={(e) => setIntroText(e.target.value)}
+                        placeholder="Hook headline…"
+                        className="field text-xs"
+                      />
+                    )}
+
+                    <label className="flex items-center gap-2.5 text-sm text-ink-200">
+                      <input
+                        type="checkbox"
+                        checked={includeWatermark}
+                        onChange={(e) => setIncludeWatermark(e.target.checked)}
+                        className="size-4 accent-sodium-500"
+                      />
+                      <span>
+                        Channel watermark
+                        {resolvedWatermarkText && (
+                          <span className="ml-1.5 text-xs text-ink-500">
+                            ({resolvedWatermarkText})
+                          </span>
+                        )}
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 text-sm text-ink-200">
                       <input
                         type="checkbox"
                         checked={includeOutro}
                         onChange={(e) => setIncludeOutro(e.target.checked)}
                         className="size-4 accent-sodium-500"
                       />
-                      Include YouTube CTA overlay
-                    </span>
-                    <Link
-                      to="/settings"
-                      className="text-xs text-ink-500 underline underline-offset-4 hover:text-sodium-500"
-                    >
-                      configure
-                    </Link>
-                  </label>
+                      YouTube CTA outro overlay
+                    </label>
+                  </div>
 
                   <button
                     onClick={() => exportClip(selected)}

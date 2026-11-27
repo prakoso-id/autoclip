@@ -15,6 +15,7 @@ from ..db import store
 from ..db.models import Export, new_id
 from ..pipeline import captions as captions_module
 from ..pipeline import export as export_module
+from ..pipeline import intro as intro_module
 from ..pipeline import outro as outro_module
 from ..pipeline.reframe.croppath import CropPath, assign_speakers_from_crop_path, centre_crop
 from ..pipeline.runner import JobWorkspace
@@ -224,6 +225,42 @@ async def export_clip(clip_id: str, payload: ExportRequestIn) -> ExportOut:
         else None
     )
 
+    use_intro = (
+        settings.export.intro.enabled
+        if payload.include_intro is None
+        else payload.include_intro
+    )
+    resolved_intro_text = (
+        payload.intro_text.strip()
+        if payload.intro_text is not None
+        else (clip.title or clip.hook or "").strip()
+    )
+    intro_spec = (
+        intro_module.IntroHookSpec(
+            text=resolved_intro_text,
+            duration_s=settings.export.intro.duration_s,
+            accent_color=settings.export.outro.accent_color,
+        )
+        if use_intro and resolved_intro_text
+        else None
+    )
+
+    use_watermark = (
+        settings.export.intro.watermark_enabled
+        if payload.include_watermark is None
+        else payload.include_watermark
+    )
+    resolved_watermark_text = (
+        settings.export.intro.watermark_text.strip()
+        or settings.export.outro.youtube_handle.strip()
+        or (source.channel or "").strip()
+    )
+    watermark_spec = (
+        intro_module.WatermarkSpec(text=resolved_watermark_text)
+        if use_watermark and resolved_watermark_text
+        else None
+    )
+
     request = export_module.ExportRequest(
         source=Path(source.path),
         destination=destination,
@@ -234,6 +271,8 @@ async def export_clip(clip_id: str, payload: ExportRequestIn) -> ExportOut:
         style=style,
         ratio=payload.ratio,
         outro=outro_spec,
+        intro_hook=intro_spec,
+        watermark=watermark_spec,
     )
 
     try:

@@ -586,6 +586,46 @@ class TestOutroOverlayRender:
         assert info.duration_s == pytest.approx(5.0, abs=0.35)
 
 
+class TestIntroAndWatermarkRender:
+    def test_intro_hook_and_watermark_render_with_outro_preserving_duration(
+        self, source_video, words, tmp_path
+    ) -> None:
+        from autoclip.config import OutroSettings
+        from autoclip.pipeline.intro import IntroHookSpec, WatermarkSpec
+        from autoclip.pipeline.outro import OutroCardSpec
+
+        plain = tmp_path / "plain_intro.mp4"
+        decorated = tmp_path / "decorated.mp4"
+
+        export.export_clip(
+            make_request(source_video, plain, centre_crop(SOURCE_W, SOURCE_H, 5.0), words),
+            work_dir=tmp_path / "work",
+        )
+        export.export_clip(
+            make_request(
+                source_video,
+                decorated,
+                centre_crop(SOURCE_W, SOURCE_H, 5.0),
+                words,
+                intro_hook=IntroHookSpec(text="Kenapa Judulnya Giant Killing?", duration_s=2.0),
+                watermark=WatermarkSpec(text="@ObrolanTibatiba"),
+                outro=OutroCardSpec(
+                    settings=OutroSettings(
+                        enabled=True, duration_s=2.0, youtube_handle="@ObrolanTibatiba"
+                    )
+                ),
+            ),
+            work_dir=tmp_path / "work",
+        )
+
+        info = ffmpeg.probe(decorated)
+        assert (info.width, info.height) == (1080, 1920)
+        assert info.has_audio
+        assert info.duration_s == pytest.approx(5.0, abs=0.35)
+        assert _frame_signature(plain, 1.0) != _frame_signature(decorated, 1.0)
+        assert _frame_signature(plain, 4.2) != _frame_signature(decorated, 4.2)
+
+
 def _frame_signature(video: Path, timestamp: float) -> str:
     """Hash one frame's pixels, for comparing rendered output."""
     result = subprocess.run(

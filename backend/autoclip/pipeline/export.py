@@ -18,8 +18,10 @@ from ..config import ExportSettings
 from ..system import report
 from . import captions as captions_module
 from . import ffmpeg
+from . import intro as intro_module
 from . import outro as outro_module
 from .captions import CaptionStyle
+from .intro import IntroHookSpec, WatermarkSpec
 from .outro import OutroCardSpec
 from .reframe.croppath import CropPath, segment_crop_filter
 from .transcript import Word
@@ -59,6 +61,8 @@ class ExportRequest:
     ratio: str = "9:16"
     burn_captions: bool = True
     outro: OutroCardSpec | None = None
+    intro_hook: IntroHookSpec | None = None
+    watermark: WatermarkSpec | None = None
 
     @property
     def duration_s(self) -> float:
@@ -93,6 +97,8 @@ def build_video_filtergraph(
     subtitle_name: str | None,
     fonts_name: str = "fonts",
     outro_input_index: int | None = None,
+    watermark_input_index: int | None = None,
+    intro_input_index: int | None = None,
 ) -> str:
     """Build the ``-filter_complex`` video chain for one clip."""
     out_w, out_h = ratio_dimensions(request.ratio)
@@ -142,28 +148,65 @@ def build_video_filtergraph(
         if request.outro is not None and outro_input_index is not None
         else 0.0
     )
+    eff_intro_s = (
+        intro_module.effective_intro_duration(request.intro_hook.duration_s, request.duration_s)
+        if request.intro_hook is not None
+        and request.intro_hook.text.strip()
+        and intro_input_index is not None
+        else 0.0
+    )
+    has_watermark = (
+        request.watermark is not None
+        and bool(request.watermark.text.strip())
+        and watermark_input_index is not None
+    )
+
+    if eff_outro_s > 0.0:
+        # Split before captions/watermark/intro so the live-blurred outro
+        # cleanly covers everything on top during the final seconds.
+        parts.append(f"{current}split=2[vpre_main][vpre_outro]")
+        main_src = "[vpre_main]"
+    else:
+        main_src = current
+
+    if request.burn_captions and subtitle_name is not None:
+        # Bare relative names — ffmpeg runs with its cwd set to the render
+        # workspace, so there is nothing here that needs escaping.
+        parts.append(f"{main_src}ass=filename={subtitle_name}:fontsdir={fonts_name}[vmain_cap]")
+        main_cur = "[vmain_cap]"
+    else:
+        main_cur = main_src
+
+    if has_watermark:
+        parts.append(f"{main_cur}[{watermark_input_index}:v]overlay=0:0[vmain_wm]")
+        main_cur = "[vmain_wm]"
+
+    if eff_intro_s > 0.0:
+        fade_in_s = min(intro_module.INTRO_FADE_IN_S, eff_intro_s * 0.3)
+        fade_out_s = min(intro_module.INTRO_FADE_OUT_S, eff_intro_s * 0.3)
+        fade_out_start = max(fade_in_s, eff_intro_s - fade_out_s)
+        slide_s = min(intro_module.INTRO_SLIDE_S, eff_intro_s * 0.35)
+        slide_px = max(16, int(min(out_w, out_h) * 0.026))
+        parts.append(
+            f"[{intro_input_index}:v]format=rgba,"
+            f"fade=t=in:st=0:d={fade_in_s:.4f}:alpha=1,"
+            f"fade=t=out:st={fade_out_start:.4f}:d={fade_out_s:.4f}:alpha=1[vintro_fg]"
+        )
+        parts.append(
+            f"{main_cur}[vintro_fg]overlay=x=0:"
+            f"y='if(lt(t,{slide_s:.4f}),-round({slide_px}*pow(1-t/{slide_s:.4f},3)),0)':"
+            f"enable='lte(t,{eff_intro_s:.4f})':eof_action=pass[vmain_intro]"
+        )
+        main_cur = "[vmain_intro]"
 
     if eff_outro_s <= 0.0:
-        if request.burn_captions and subtitle_name is not None:
-            # Bare relative names — ffmpeg runs with its cwd set to the render
-            # workspace, so there is nothing here that needs escaping.
-            parts.append(f"{current}ass=filename={subtitle_name}:fontsdir={fonts_name}[vout]")
-        else:
-            parts.append(f"{current}null[vout]")
+        parts.append(f"{main_cur}format=yuv420p[vout]")
         return ";".join(parts)
 
     outro_start = max(0.0, request.duration_s - eff_outro_s)
     fade_s = min(outro_module.OUTRO_FADE_S, eff_outro_s * 0.4)
     slide_s = min(outro_module.OUTRO_SLIDE_S, eff_outro_s * 0.5)
     slide_px = max(24, int(min(out_w, out_h) * 0.052))
-
-    # Split before captions so the live-blurred outro covers captions cleanly
-    # and only the final `eff_outro_s` seconds pay the boxblur cost.
-    parts.append(f"{current}split=2[vpre_main][vpre_outro]")
-    if request.burn_captions and subtitle_name is not None:
-        parts.append(f"[vpre_main]ass=filename={subtitle_name}:fontsdir={fonts_name}[vmain]")
-    else:
-        parts.append("[vpre_main]null[vmain]")
 
     parts.append(
         f"[vpre_outro]trim=start={outro_start:.4f},"
@@ -178,7 +221,7 @@ def build_video_filtergraph(
         f"fade=t=in:st={outro_start:.4f}:d={fade_s:.4f}:alpha=1[voutro]"
     )
     parts.append(
-        f"[vmain][voutro]overlay=0:0:enable='gte(t,{outro_start:.4f})':eof_action=repeat,"
+        f"{main_cur}[voutro]overlay=0:0:enable='gte(t,{outro_start:.4f})':eof_action=repeat,"
         f"format=yuv420p[vout]"
     )
 
@@ -312,7 +355,10 @@ def export_clip(
             ass_path, captions_module.FONT_DIR
         )
 
-    outro_png: Path | None = None
+    extra_inputs: list[str] = []
+    next_input = 1
+
+    outro_input_index: int | None = None
     eff_outro_s = (
         outro_module.effective_outro_duration(
             request.outro.settings.duration_s, request.duration_s
@@ -328,20 +374,9 @@ def export_clip(
             height=out_h,
             include_scrim=False,
         )
-
-    filtergraph = build_video_filtergraph(
-        request,
-        subtitle_name=subtitle_name,
-        fonts_name=fonts_name,
-        outro_input_index=1 if outro_png is not None else None,
-    )
-
-    request.destination.parent.mkdir(parents=True, exist_ok=True)
-
-    # Input and output paths are ordinary argv arguments, so they stay absolute
-    # and need no escaping regardless of the working directory.
-    def _build_args(hw_decode: list[str]) -> list[str]:
-        outro_args = (
+        outro_input_index = next_input
+        next_input += 1
+        extra_inputs.extend(
             [
                 "-loop",
                 "1",
@@ -352,9 +387,56 @@ def export_clip(
                 "-i",
                 str(outro_png),
             ]
-            if outro_png is not None
-            else []
         )
+
+    watermark_input_index: int | None = None
+    if request.watermark is not None and request.watermark.text.strip():
+        wm_png = intro_module.write_watermark(
+            workspace / "watermark.png", request.watermark, width=out_w, height=out_h
+        )
+        watermark_input_index = next_input
+        next_input += 1
+        extra_inputs.extend(["-i", str(wm_png)])
+
+    intro_input_index: int | None = None
+    eff_intro_s = (
+        intro_module.effective_intro_duration(request.intro_hook.duration_s, request.duration_s)
+        if request.intro_hook is not None and request.intro_hook.text.strip()
+        else 0.0
+    )
+    if request.intro_hook is not None and eff_intro_s > 0.0:
+        intro_png = intro_module.write_intro_hook(
+            workspace / "intro_hook.png", request.intro_hook, width=out_w, height=out_h
+        )
+        intro_input_index = next_input
+        next_input += 1
+        extra_inputs.extend(
+            [
+                "-loop",
+                "1",
+                "-framerate",
+                "30",
+                "-t",
+                f"{eff_intro_s + 1.0:.4f}",
+                "-i",
+                str(intro_png),
+            ]
+        )
+
+    filtergraph = build_video_filtergraph(
+        request,
+        subtitle_name=subtitle_name,
+        fonts_name=fonts_name,
+        outro_input_index=outro_input_index,
+        watermark_input_index=watermark_input_index,
+        intro_input_index=intro_input_index,
+    )
+
+    request.destination.parent.mkdir(parents=True, exist_ok=True)
+
+    # Input and output paths are ordinary argv arguments, so they stay absolute
+    # and need no escaping regardless of the working directory.
+    def _build_args(hw_decode: list[str]) -> list[str]:
         return [
             *hw_decode,
             # Seeking before -i decodes from the nearest keyframe and is far faster
@@ -365,7 +447,7 @@ def export_clip(
             f"{request.duration_s:.4f}",
             "-i",
             str(request.source),
-            *outro_args,
+            *extra_inputs,
             "-filter_complex",
             filtergraph,
             "-map",

@@ -204,6 +204,9 @@ class ExportRequestIn(BaseModel):
     style: str = "bold_pop"
     write_srt: bool = False
     include_outro: bool | None = None
+    include_intro: bool | None = None
+    intro_text: str | None = None
+    include_watermark: bool | None = None
 
 
 class CaptionStyleOut(BaseModel):

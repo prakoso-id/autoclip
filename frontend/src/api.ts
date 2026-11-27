@@ -129,6 +129,13 @@ export interface ProviderStatus {
   has_key: boolean
 }
 
+export interface IntroSettings {
+  enabled: boolean
+  duration_s: number
+  watermark_enabled: boolean
+  watermark_text: string
+}
+
 export interface OutroSettings {
   enabled: boolean
   duration_s: number
@@ -165,6 +172,7 @@ export interface Settings {
     crf: number
     write_srt: boolean
     outro: OutroSettings
+    intro: IntroSettings
   }
   insecure_secret_storage: boolean
   keys_present: Record<string, boolean>
@@ -297,7 +305,12 @@ export const api = {
     ratio: string,
     style: string,
     writeSrt = false,
-    includeOutro?: boolean,
+    options?: {
+      includeOutro?: boolean
+      includeIntro?: boolean
+      introText?: string
+      includeWatermark?: boolean
+    },
   ) =>
     request<ExportRecord>(`/api/clips/${clipId}/export`, {
       method: 'POST',
@@ -305,7 +318,12 @@ export const api = {
         ratio,
         style,
         write_srt: writeSrt,
-        ...(includeOutro !== undefined ? { include_outro: includeOutro } : {}),
+        ...(options?.includeOutro !== undefined ? { include_outro: options.includeOutro } : {}),
+        ...(options?.includeIntro !== undefined ? { include_intro: options.includeIntro } : {}),
+        ...(options?.introText !== undefined ? { intro_text: options.introText } : {}),
+        ...(options?.includeWatermark !== undefined
+          ? { include_watermark: options.includeWatermark }
+          : {}),
       }),
     }),
 

@@ -114,6 +114,17 @@ class OutroSettings(BaseModel):
         return cleaned
 
 
+class IntroSettings(BaseModel):
+    """Minimalist floating Intro Hook (first seconds) and subtle channel watermark."""
+
+    enabled: bool = False
+    #: Intro Hook visibility duration at the start of the clip.
+    duration_s: float = Field(default=3.0, ge=1.0, le=8.0)
+    watermark_enabled: bool = False
+    #: Channel handle/name watermark. Falls back to outro.youtube_handle when empty.
+    watermark_text: str = ""
+
+
 class ExportSettings(BaseModel):
     ratio: Literal["9:16", "1:1", "16:9"] = "9:16"
     caption_style: str = "bold_pop"
@@ -125,6 +136,7 @@ class ExportSettings(BaseModel):
     #: Also write a .srt sidecar next to each exported clip.
     write_srt: bool = False
     outro: OutroSettings = Field(default_factory=OutroSettings)
+    intro: IntroSettings = Field(default_factory=IntroSettings)
 
 
 class Settings(BaseModel):

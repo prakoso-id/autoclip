@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import {
   api,
+  type IntroSettings,
   type OutroSettings,
   type ProviderStatus,
   type Settings as SettingsData,
@@ -53,6 +54,16 @@ export function Settings() {
       export: {
         ...settings.export,
         outro: { ...settings.export.outro, ...outroPatch },
+      },
+    })
+  }
+
+  const patchIntro = (introPatch: Partial<IntroSettings>) => {
+    if (!settings) return
+    return patch({
+      export: {
+        ...settings.export,
+        intro: { ...settings.export.intro, ...introPatch },
       },
     })
   }
@@ -317,6 +328,63 @@ export function Settings() {
           />
           Also write an .srt sidecar
         </label>
+      </Section>
+
+      <Section
+        title="Intro Hook & Watermark"
+        note="Minimalist floating headline in the first seconds + optional subtle channel handle."
+      >
+        <div className="space-y-5">
+          <div className="grid gap-5 sm:grid-cols-[1fr_9rem]">
+            <label className="flex items-start gap-3 text-sm text-ink-200">
+              <input
+                type="checkbox"
+                checked={settings.export.intro.enabled}
+                onChange={(e) => void patchIntro({ enabled: e.target.checked })}
+                className="mt-0.5 size-4 accent-sodium-500"
+              />
+              <span>
+                Enable Intro Hook banner by default
+                <span className="mt-1 block text-xs text-ink-500">
+                  Shows the clip title as a minimalist floating headline for the opening seconds.
+                  Can be toggled &amp; edited per clip in Review.
+                </span>
+              </span>
+            </label>
+            <NumberField
+              label="Duration (s)"
+              value={settings.export.intro.duration_s}
+              onCommit={(value) =>
+                void patchIntro({ duration_s: Math.min(8, Math.max(1, value)) })
+              }
+            />
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <label className="flex items-start gap-3 text-sm text-ink-200">
+              <input
+                type="checkbox"
+                checked={settings.export.intro.watermark_enabled}
+                onChange={(e) => void patchIntro({ watermark_enabled: e.target.checked })}
+                className="mt-0.5 size-4 accent-sodium-500"
+              />
+              <span>
+                Enable subtle channel watermark
+                <span className="mt-1 block text-xs text-ink-500">
+                  Sits cleanly in the top safe zone and fades behind the Outro CTA automatically.
+                </span>
+              </span>
+            </label>
+
+            <Field
+              label="Watermark text (optional)"
+              hint="Leave empty to reuse your YouTube handle below."
+              value={settings.export.intro.watermark_text}
+              placeholder={settings.export.outro.youtube_handle || '@NamaChannel'}
+              onCommit={(value) => void patchIntro({ watermark_text: value })}
+            />
+          </div>
+        </div>
       </Section>
 
       <Section

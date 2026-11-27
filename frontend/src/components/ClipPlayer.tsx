@@ -39,6 +39,12 @@ export interface OutroPreviewConfig {
   sourceChannel?: string | null
 }
 
+export interface IntroPreviewConfig {
+  text: string
+  durationS: number
+  accentColor?: string
+}
+
 export function ClipPlayer({
   src,
   startS,
@@ -48,6 +54,8 @@ export function ClipPlayer({
   ratio,
   cropPath,
   outro,
+  introHook,
+  watermarkText,
 }: {
   src: string
   startS: number
@@ -57,6 +65,8 @@ export function ClipPlayer({
   ratio: string
   cropPath?: CropPath | null
   outro?: OutroPreviewConfig | null
+  introHook?: IntroPreviewConfig | null
+  watermarkText?: string | null
 }) {
   const video = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -150,6 +160,25 @@ export function ClipPlayer({
       : 0
   const outroSlidePx = Math.round(22 * Math.pow(1 - slideProgress, 3))
 
+  const rawIntroS =
+    introHook && introHook.text.trim() ? Math.min(introHook.durationS, duration * 0.4) : 0
+  const effIntroS = rawIntroS >= 0.5 ? rawIntroS : 0
+  const introFadeInS = Math.min(0.3, effIntroS * 0.3)
+  const introFadeOutS = Math.min(0.35, effIntroS * 0.3)
+  const introSlideS = Math.min(0.35, effIntroS * 0.35)
+  let introAlpha = 0
+  if (effIntroS > 0 && elapsed <= effIntroS) {
+    const fadeIn = Math.min(1, elapsed / Math.max(0.05, introFadeInS))
+    const fadeOut =
+      elapsed > effIntroS - introFadeOutS
+        ? Math.max(0, (effIntroS - elapsed) / Math.max(0.05, introFadeOutS))
+        : 1
+    introAlpha = Math.min(fadeIn, fadeOut)
+  }
+  const introSlideProgress =
+    effIntroS > 0 ? Math.min(1, elapsed / Math.max(0.05, introSlideS)) : 1
+  const introSlidePx = -Math.round(14 * Math.pow(1 - introSlideProgress, 3))
+
   const cropStyle = cropWindowStyle(cropPath, elapsed)
   const [aspectW, aspectH] = ASPECTS[ratio] ?? ASPECTS['9:16']
   // Height alone can't bound the box: with width:100% and an aspect-ratio, a
@@ -187,6 +216,17 @@ export function ClipPlayer({
 
         <div style={{ opacity: 1 - outroAlpha }}>
           <CaptionOverlay words={words} time={time} style={style} />
+          {introHook && introAlpha > 0 && (
+            <IntroHookOverlay
+              intro={introHook}
+              alpha={introAlpha}
+              slidePx={introSlidePx}
+              isPortrait={aspectH > aspectW}
+            />
+          )}
+          {watermarkText && watermarkText.trim() && (
+            <WatermarkOverlay text={watermarkText.trim()} isPortrait={aspectH > aspectW} />
+          )}
         </div>
 
         {outro && outroAlpha > 0 && (
@@ -619,6 +659,76 @@ function formatHandle(raw: string): string {
   const cleaned = raw.trim()
   if (!cleaned) return ''
   return cleaned.startsWith('@') ? cleaned : `@${cleaned}`
+}
+
+/** Minimalist floating editorial Intro Hook preview matching autoclip.pipeline.intro. */
+function IntroHookOverlay({
+  intro,
+  alpha,
+  slidePx,
+  isPortrait,
+}: {
+  intro: IntroPreviewConfig
+  alpha: number
+  slidePx: number
+  isPortrait: boolean
+}) {
+  const raw = intro.text.trim().toUpperCase()
+  const words = raw.split(/\s+/)
+  const splitIdx = words.length >= 4 ? Math.ceil(words.length / 2) : words.length
+  const line1 = words.slice(0, splitIdx).join(' ')
+  const line2 = words.slice(splitIdx).join(' ')
+  const accent = intro.accentColor || '#FF0033'
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 flex flex-col items-center px-[10%] text-center"
+      style={{
+        opacity: alpha,
+        paddingTop: isPortrait ? '24%' : '12%',
+        paddingBottom: '8%',
+        background:
+          'linear-gradient(180deg, rgba(8,10,16,0.58) 0%, rgba(8,10,16,0.22) 60%, rgba(8,10,16,0) 100%)',
+      }}
+    >
+      <div
+        className="flex flex-col items-center"
+        style={{ transform: `translateY(${slidePx}px)` }}
+      >
+        <p
+          className="leading-[1.06] text-white uppercase drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]"
+          style={{
+            fontFamily: 'Anton, Impact, sans-serif',
+            fontSize: isPortrait ? 'clamp(0.95rem, 3.6vw, 1.35rem)' : 'clamp(0.9rem, 2.6vw, 1.2rem)',
+          }}
+        >
+          <span className="block">{line1}</span>
+          {line2 && (
+            <span className="block" style={{ color: '#FFD60A' }}>
+              {line2}
+            </span>
+          )}
+        </p>
+        <span
+          className="mt-1.5 inline-block h-[3px] w-10 rounded-full"
+          style={{ backgroundColor: accent }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function WatermarkOverlay({ text, isPortrait }: { text: string; isPortrait: boolean }) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 flex justify-center"
+      style={{ top: isPortrait ? '9.8%' : '6%' }}
+    >
+      <span className="text-[10px] font-semibold tracking-tight text-white/80 drop-shadow-[0_1px_4px_rgba(0,0,0,0.75)]">
+        {text}
+      </span>
+    </div>
+  )
 }
 
 /** Live-blurred YouTube Search Bar CTA preview layered on top of the playing clip tail. */
