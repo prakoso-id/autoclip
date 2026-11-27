@@ -194,6 +194,17 @@ export function Settings() {
             placeholder="auto"
             onCommit={(value) => patch({ whisper: { ...settings.whisper, language: value } })}
           />
+          <div className="sm:col-span-2">
+            <Field
+              label="Default context prompt / keywords (optional)"
+              hint="Guides Whisper on podcast name, host names, and recurring English/jargon terms. Can be customized per video on the Home page."
+              value={settings.whisper.initial_prompt ?? ''}
+              placeholder="Contoh: Podcast Obrolan Tiba-tiba, anime, manga, Webtoon, Marvel, Netflix"
+              onCommit={(value) =>
+                patch({ whisper: { ...settings.whisper, initial_prompt: value } })
+              }
+            />
+          </div>
         </div>
 
         <label className="mt-5 flex items-start gap-3 text-sm text-ink-200">

@@ -203,6 +203,28 @@ class TestJobs:
 
         assert response.json()["provider"] == "ollama"
 
+    def test_initial_prompt_override_persists_to_job_and_runner(
+        self, client: TestClient, source: Source
+    ) -> None:
+        from autoclip.pipeline.runner import PipelineRunner
+
+        prompt = "Podcast Obrolan Tiba-tiba, Giant Killing, A Shop for Killer"
+        response = client.post(
+            "/api/jobs",
+            json={
+                "source_id": source.id,
+                "settings": {"initial_prompt": prompt},
+            },
+        )
+
+        assert response.status_code == 201
+        job_row = store.get_job(response.json()["id"])
+        assert job_row is not None
+        assert job_row.settings["whisper"]["initial_prompt"] == prompt
+
+        runner = PipelineRunner(job_row, source)
+        assert runner.settings.whisper.initial_prompt == prompt
+
     def test_missing_source_is_404(self, client: TestClient) -> None:
         response = client.post("/api/jobs", json={"source_id": "nope"})
 

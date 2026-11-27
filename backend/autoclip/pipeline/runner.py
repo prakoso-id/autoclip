@@ -115,7 +115,19 @@ class PipelineRunner:
     ) -> None:
         self.job = job
         self.source = source
-        self.settings = settings or load_settings()
+        if settings is not None:
+            self.settings = settings
+        elif job.settings:
+            try:
+                self.settings = Settings.model_validate(job.settings)
+            except Exception:
+                log.warning(
+                    "Invalid persisted settings on job %s; falling back to global settings.",
+                    job.id,
+                )
+                self.settings = load_settings()
+        else:
+            self.settings = load_settings()
         self.on_progress = on_progress
         self._is_cancelled = is_cancelled or (lambda: False)
         self.workspace = JobWorkspace(job.id)

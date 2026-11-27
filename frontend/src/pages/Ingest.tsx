@@ -26,6 +26,17 @@ export function Ingest() {
   useEffect(() => {
     api.listJobs(8).then(setJobs).catch(() => undefined)
     api.providerStatus().then(setProviders).catch(() => undefined)
+    api
+      .getSettings()
+      .then((s) => {
+        const defaultPrompt = s.whisper.initial_prompt?.trim()
+        if (defaultPrompt) {
+          setOverrides((prev) =>
+            prev.initial_prompt === undefined ? { ...prev, initial_prompt: defaultPrompt } : prev,
+          )
+        }
+      })
+      .catch(() => undefined)
   }, [])
 
   const start = useCallback(
@@ -99,6 +110,26 @@ export function Ingest() {
           <p className="mt-3 text-xs leading-relaxed text-ink-500">
             Only download video you own or have the rights to process.
           </p>
+
+          <div className="mt-7">
+            <label htmlFor="transcription-context" className="eyebrow">
+              Transcription context / keywords (optional)
+            </label>
+            <input
+              id="transcription-context"
+              className="field mt-2 text-sm"
+              placeholder="Contoh: Podcast Obrolan Tiba-tiba bahas anime Giant Killing, Dead End Job, Webtoon…"
+              value={overrides.initial_prompt ?? ''}
+              onChange={(e) =>
+                setOverrides((prev) => ({ ...prev, initial_prompt: e.target.value }))
+              }
+              disabled={busy !== null}
+            />
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
+              Berlaku untuk link YouTube maupun upload file — bantu Whisper mengeja nama, judul, dan
+              istilah asing dengan akurat.
+            </p>
+          </div>
 
           <AdvancedOptions
             open={advancedOpen}

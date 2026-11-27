@@ -68,6 +68,9 @@ class WhisperSettings(BaseModel):
     #: multi-host setups avoid collapsing 3 speakers into 2).
     min_speakers: int | None = Field(default=None, ge=1, le=20)
     max_speakers: int | None = Field(default=None, ge=1, le=20)
+    #: Optional context prompt / proper-noun keywords passed to Whisper's
+    #: ``initial_prompt`` to improve accuracy on names, titles, and code-switching.
+    initial_prompt: str = ""
 
 
 class ClipSettings(BaseModel):

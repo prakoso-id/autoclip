@@ -157,6 +157,7 @@ export interface Settings {
     diarization: boolean
     min_speakers?: number | null
     max_speakers?: number | null
+    initial_prompt?: string
   }
   clips: { min_duration_s: number; max_duration_s: number; max_clips: number }
   ingest: {
@@ -196,6 +197,7 @@ export interface JobSettingsOverrides {
   whisper_model?: string
   language?: string
   diarization?: boolean
+  initial_prompt?: string
   min_duration_s?: number
   max_duration_s?: number
   max_clips?: number

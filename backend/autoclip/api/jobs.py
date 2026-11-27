@@ -32,6 +32,8 @@ def _apply_overrides(settings, overrides: JobSettingsIn):
         merged.whisper.language = overrides.language
     if overrides.diarization is not None:
         merged.whisper.diarization = overrides.diarization
+    if overrides.initial_prompt is not None:
+        merged.whisper.initial_prompt = overrides.initial_prompt
     if overrides.min_duration_s is not None:
         merged.clips.min_duration_s = overrides.min_duration_s
     if overrides.max_duration_s is not None:

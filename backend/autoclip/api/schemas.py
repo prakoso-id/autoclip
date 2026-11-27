@@ -63,6 +63,7 @@ class JobSettingsIn(BaseModel):
     whisper_model: str | None = None
     language: str | None = None
     diarization: bool | None = None
+    initial_prompt: str | None = None
     min_duration_s: float | None = Field(default=None, gt=0)
     max_duration_s: float | None = Field(default=None, gt=0)
     max_clips: int | None = Field(default=None, ge=1, le=50)

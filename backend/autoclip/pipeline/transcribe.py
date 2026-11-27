@@ -129,6 +129,7 @@ def transcribe(
     segments_iter, info = model.transcribe(
         str(audio),
         language=settings.language or None,
+        initial_prompt=settings.initial_prompt.strip() or None,
         word_timestamps=True,
         vad_filter=True,
         # Trims long silences before decoding, which both speeds things up and
