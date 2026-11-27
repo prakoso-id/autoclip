@@ -142,6 +142,16 @@ export function Review() {
     }
   }
 
+  const commitTitle = async (clip: Clip, nextTitle: string) => {
+    const cleaned = nextTitle.trim()
+    if (!cleaned || cleaned === clip.title) return
+    try {
+      patchClip(await api.patchClip(clip.id, { title: cleaned }))
+    } catch (err) {
+      setError(err as Error)
+    }
+  }
+
   const exportClip = async (clip: Clip) => {
     setExporting((current) => new Set(current).add(clip.id))
     setError(null)
@@ -333,7 +343,28 @@ export function Review() {
             {selected && (
               <>
                 <div>
-                  <p className="eyebrow">Why this clip</p>
+                  <label className="block">
+                    <span className="eyebrow">Clip title &amp; Intro Hook</span>
+                    <input
+                      type="text"
+                      value={introText}
+                      onChange={(e) => setIntroText(e.target.value)}
+                      onBlur={() => void commitTitle(selected, introText)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.currentTarget.blur()
+                        }
+                      }}
+                      placeholder="Edit clip title / intro hook…"
+                      className="field mt-1.5 text-sm font-medium text-ink-100"
+                    />
+                    <span className="mt-1 block text-xs text-ink-500">
+                      Press Enter or click outside to save — used for the Intro Hook banner and
+                      export filename.
+                    </span>
+                  </label>
+
+                  <p className="eyebrow mt-6">Why this clip</p>
                   <p className="mt-2 max-w-prose text-[0.9375rem] leading-relaxed text-ink-300">
                     {selected.reason || 'No rationale returned for this clip.'}
                   </p>
@@ -423,6 +454,10 @@ export function Review() {
                         type="text"
                         value={introText}
                         onChange={(e) => setIntroText(e.target.value)}
+                        onBlur={() => void commitTitle(selected, introText)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur()
+                        }}
                         placeholder="Hook headline…"
                         className="field text-xs"
                       />
