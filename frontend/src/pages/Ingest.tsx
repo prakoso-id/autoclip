@@ -104,7 +104,23 @@ export function Ingest() {
                 className="btn btn-primary shrink-0"
                 disabled={busy !== null || !url.trim()}
               >
-                {busy === 'url' ? 'Fetching…' : 'Start'}
+                {busy === 'url' ? (
+                  'Fetching…'
+                ) : (
+                  <>
+                    <span>Start</span>
+                    <svg
+                      className="size-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      aria-hidden="true"
+                    >
+                      <path d="M5 12h14M13 5l7 7-7 7" />
+                    </svg>
+                  </>
+                )}
               </button>
             </div>
           </form>
@@ -158,19 +174,37 @@ export function Ingest() {
               if (file) submitFile(file)
             }}
             className={[
-              'mt-3 flex min-h-52 cursor-pointer flex-col items-center justify-center gap-2 border border-dashed px-6 text-center transition-colors duration-200',
+              'group mt-3 flex min-h-56 cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed px-6 text-center transition-all duration-200',
               dragging
-                ? 'border-sodium-500 bg-sodium-700/10'
-                : 'border-ink-700 hover:border-ink-600',
+                ? 'border-sodium-500 bg-sodium-700/15'
+                : 'border-ink-700 bg-ink-850/35 hover:border-ink-500 hover:bg-ink-850/70',
             ].join(' ')}
             onClick={() => fileInput.current?.click()}
             role="button"
             tabIndex={0}
+            aria-label="Upload local video or audio file"
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') fileInput.current?.click()
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                fileInput.current?.click()
+              }
             }}
           >
-            <span className="font-display text-2xl text-ink-200">
+            <span className="grid size-10 place-items-center rounded-full border border-ink-700 bg-ink-900/80 text-ink-300 transition-colors group-hover:border-sodium-500/60 group-hover:text-sodium-500">
+              <svg
+                className="size-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </span>
+            <span className="font-display text-2xl text-ink-100">
               {busy === 'file' ? 'Uploading…' : 'Drop video or audio'}
             </span>
             <span className="text-xs text-ink-500">mp4 · mov · mkv · webm · mp3 · wav · m4a</span>
@@ -290,13 +324,26 @@ function CompressTool() {
           }
         }}
         className={[
-          'mt-4 flex min-h-28 cursor-pointer flex-col items-center justify-center gap-1.5 border border-dashed px-6 py-5 text-center transition-colors duration-200',
+          'group mt-4 flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 border border-dashed px-6 py-5 text-center transition-all duration-200',
           dragging
-            ? 'border-sodium-500 bg-sodium-700/10'
-            : 'border-ink-700 hover:border-ink-600',
+            ? 'border-sodium-500 bg-sodium-700/15'
+            : 'border-ink-700 bg-ink-850/35 hover:border-ink-500 hover:bg-ink-850/70',
         ].join(' ')}
       >
-        <span className="font-display text-xl text-ink-200">
+        <span className="flex items-center gap-2 font-display text-xl text-ink-100">
+          <svg
+            className="size-4 text-sodium-500"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            aria-hidden="true"
+          >
+            <polyline points="4 14 10 14 10 20" />
+            <polyline points="20 10 14 10 14 4" />
+            <line x1="14" y1="10" x2="21" y2="3" />
+            <line x1="3" y1="21" x2="10" y2="14" />
+          </svg>
           {progress
             ? `Compressing ${progress.current}/${progress.total} · ${progress.name}…`
             : 'Drop video(s) to compress'}
@@ -325,27 +372,77 @@ function CompressTool() {
       )}
 
       {results.length > 0 && (
-        <ul className="mt-4 divide-y divide-ink-850 border-t border-ink-850">
-          {results.map((item) => (
-            <li
-              key={item.id}
-              className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"
+        <div className="mt-4">
+          <div className="flex items-center justify-between pb-2">
+            <span className="numeric text-xs text-ink-400">
+              {results.length} compressed file{results.length > 1 ? 's' : ''} ready
+            </span>
+            <button
+              type="button"
+              onClick={() => setResults([])}
+              className="btn btn-quiet text-xs"
             >
-              <div className="min-w-0">
-                <p className="truncate text-ink-200">{item.filename}</p>
-                <p className="numeric mt-0.5 text-xs text-ink-500">
-                  {formatBytes(item.original_bytes)} → {formatBytes(item.compressed_bytes)}{' '}
-                  <span className="ml-1.5 text-signal-good">
-                    (-{item.saved_percent.toFixed(0)}%)
-                  </span>
-                </p>
-              </div>
-              <a href={item.download_url} download={item.filename} className="btn btn-primary">
-                Download
-              </a>
-            </li>
-          ))}
-        </ul>
+              Clear list
+            </button>
+          </div>
+          <ul className="divide-y divide-ink-800 border-y border-ink-800 bg-ink-850/30">
+            {results.map((item) => {
+              const ratio =
+                item.original_bytes > 0
+                  ? Math.min(100, Math.round((item.compressed_bytes / item.original_bytes) * 100))
+                  : 100
+              return (
+                <li
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 text-sm"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-ink-100">{item.filename}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-3">
+                      <span className="numeric text-xs text-ink-400">
+                        {formatBytes(item.original_bytes)} →{' '}
+                        <strong className="text-ink-100">
+                          {formatBytes(item.compressed_bytes)}
+                        </strong>
+                      </span>
+                      <span className="numeric inline-flex items-center border border-signal-good/40 bg-signal-good/10 px-1.5 py-0.5 text-[11px] font-semibold text-signal-good">
+                        -{item.saved_percent.toFixed(0)}% saved
+                      </span>
+                      <div
+                        className="hidden h-1 w-24 overflow-hidden bg-ink-800 sm:block"
+                        title={`Compressed to ${ratio}% of original size`}
+                      >
+                        <div
+                          className="h-full bg-signal-good"
+                          style={{ width: `${ratio}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <a
+                    href={item.download_url}
+                    download={item.filename}
+                    className="btn btn-primary"
+                  >
+                    <svg
+                      className="size-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>Download</span>
+                  </a>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       )}
     </section>
   )
@@ -522,29 +619,61 @@ function NumberField({
 }
 
 function RecentJobs({ jobs }: { jobs: Job[] }) {
+  const [filter, setFilter] = useState<'all' | 'done' | 'failed'>('all')
   if (jobs.length === 0) return null
+
+  const filtered = jobs.filter((j) => (filter === 'all' ? true : j.status === filter))
 
   return (
     <section className="rise mt-24" style={{ animationDelay: '240ms' }}>
-      <div className="flex items-baseline justify-between border-b border-ink-800 pb-3">
-        <h2 className="eyebrow">Recent</h2>
-        <span className="numeric text-xs text-ink-600">{jobs.length}</span>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-ink-800 pb-3">
+        <div className="flex items-baseline gap-3">
+          <h2 className="eyebrow">Recent sessions</h2>
+          <span className="numeric text-xs text-ink-500">{jobs.length}</span>
+        </div>
+
+        {jobs.length > 2 && (
+          <div className="flex items-center gap-1 text-xs">
+            {(['all', 'done', 'failed'] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilter(key)}
+                className={[
+                  'cursor-pointer px-2.5 py-1 capitalize transition-colors',
+                  filter === key
+                    ? 'bg-ink-800 text-ink-100'
+                    : 'text-ink-400 hover:text-ink-200',
+                ].join(' ')}
+              >
+                {key}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <ul>
-        {jobs.map((job) => (
+        {filtered.map((job) => (
           <li key={job.id}>
             <a
               href={job.status === 'done' ? `/jobs/${job.id}/clips` : `/jobs/${job.id}`}
-              className="group grid grid-cols-[1fr_auto] items-baseline gap-4 border-b border-ink-850 py-4 transition-colors duration-200 hover:bg-ink-850/40 sm:grid-cols-[1fr_7rem_6rem_5rem]"
+              className="group grid grid-cols-[1fr_auto] items-center gap-4 border-b border-ink-850 px-2 py-4 transition-colors duration-200 hover:bg-ink-850/55 sm:grid-cols-[1fr_7rem_6rem_7.5rem]"
             >
-              <span className="truncate text-[0.9375rem] text-ink-200 group-hover:text-ink-100">
-                {job.source?.title || 'Untitled'}
-              </span>
-              <span className="numeric hidden text-xs text-ink-500 sm:block">
+              <div className="min-w-0">
+                <span className="block truncate text-[0.9375rem] font-medium text-ink-200 transition-colors group-hover:text-ink-100">
+                  {job.source?.title || 'Untitled'}
+                </span>
+                {job.error && job.status === 'failed' && (
+                  <span className="mt-0.5 block truncate text-xs text-signal-bad/90">
+                    {job.error}
+                  </span>
+                )}
+              </div>
+              <span className="numeric hidden text-xs text-ink-400 sm:block">
                 {job.source ? formatDuration(job.source.duration_s) : '—'}
               </span>
-              <span className="hidden text-xs text-ink-500 sm:block">{job.provider}</span>
+              <span className="hidden text-xs text-ink-400 sm:block">{job.provider}</span>
               <StatusTag job={job} />
             </a>
           </li>
@@ -562,11 +691,25 @@ function StatusTag({ job }: { job: Job }) {
     queued: 'text-ink-400',
     cancelled: 'text-ink-500',
   }
+  const dot: Record<string, string> = {
+    done: 'bg-signal-good',
+    failed: 'bg-signal-bad',
+    running: 'bg-sodium-500 animate-pulse',
+    queued: 'bg-ink-400',
+    cancelled: 'bg-ink-500',
+  }
   const label =
-    job.status === 'running' ? `${Math.round(job.progress * 100)}%` : job.status
+    job.status === 'running'
+      ? `${Math.round(job.progress * 100)}%`
+      : job.status === 'done'
+        ? 'Review →'
+        : job.status
 
   return (
-    <span className={`numeric justify-self-end text-xs ${tone[job.status] ?? 'text-ink-400'}`}>
+    <span
+      className={`numeric inline-flex items-center justify-self-end gap-1.5 text-xs font-medium ${tone[job.status] ?? 'text-ink-400'}`}
+    >
+      <span className={`size-1.5 rounded-full ${dot[job.status] ?? 'bg-ink-500'}`} aria-hidden />
       {label}
     </span>
   )

@@ -273,6 +273,26 @@ class TestJobs:
         assert client.post("/api/jobs/nope/cancel").status_code == 404
         assert client.post("/api/jobs/nope/retry").status_code == 404
 
+    def test_exports_zip_bundles_exported_mp4s(self, client: TestClient, source: Source) -> None:
+        import io
+        import zipfile
+
+        from autoclip import paths
+
+        job = store.create_job(Job(id=new_id(), source_id=source.id, status="done"))
+        assert client.get(f"/api/jobs/{job.id}/exports.zip").status_code == 404
+
+        export_dir = paths.exports_dir() / job.id
+        export_dir.mkdir(parents=True, exist_ok=True)
+        (export_dir / "clip-1_9x16.mp4").write_bytes(b"fake-mp4-1")
+        (export_dir / "clip-2_9x16.mp4").write_bytes(b"fake-mp4-2")
+
+        res = client.get(f"/api/jobs/{job.id}/exports.zip")
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "application/zip"
+        with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+            assert sorted(zf.namelist()) == ["clip-1_9x16.mp4", "clip-2_9x16.mp4"]
+
 
 class TestClips:
     @pytest.fixture

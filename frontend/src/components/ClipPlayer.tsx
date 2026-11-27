@@ -240,16 +240,37 @@ export function ClipPlayer({
 
         {!playing && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="grid size-16 place-items-center rounded-full bg-ink-900/70 pl-1 text-2xl text-ink-100 backdrop-blur-[2px]">
-              ▶
+            <span className="grid size-16 place-items-center rounded-full border border-ink-700/80 bg-ink-900/80 text-ink-100 shadow-lg backdrop-blur-xs transition-transform duration-200">
+              <svg
+                className="ml-0.5 size-6"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <polygon points="6 4 20 12 6 20 6 4" />
+              </svg>
             </span>
           </div>
         )}
       </div>
 
-      <div className="mt-3 flex w-full items-center gap-4">
-        <button onClick={toggle} className="btn btn-quiet -ml-1 w-14 justify-start">
-          {playing ? 'Pause' : 'Play'}
+      <div className="mt-3 flex w-full items-center gap-3">
+        <button
+          type="button"
+          onClick={toggle}
+          className="btn btn-quiet -ml-1 w-16 justify-start gap-1.5"
+        >
+          {playing ? (
+            <svg className="size-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="6" y="4" width="4" height="16" />
+              <rect x="14" y="4" width="4" height="16" />
+            </svg>
+          ) : (
+            <svg className="size-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <polygon points="6 4 20 12 6 20 6 4" />
+            </svg>
+          )}
+          <span>{playing ? 'Pause' : 'Play'}</span>
         </button>
 
         <VolumeControl
@@ -263,13 +284,43 @@ export function ClipPlayer({
           onToggleMute={() => setMuted((current) => !current)}
         />
 
-        <div className="h-px flex-1 bg-ink-800">
-          <div
-            className="h-px origin-left bg-sodium-500"
-            style={{ transform: `scaleX(${elapsed / duration})` }}
-          />
+        <div
+          className="group relative flex h-5 flex-1 cursor-pointer items-center"
+          role="slider"
+          tabIndex={0}
+          aria-label="Seek within clip"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(elapsed)}
+          onClick={(e) => {
+            const element = video.current
+            if (!element) return
+            const rect = e.currentTarget.getBoundingClientRect()
+            const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+            const nextTime = startS + frac * duration
+            element.currentTime = nextTime
+            setTime(nextTime)
+          }}
+          onKeyDown={(e) => {
+            const element = video.current
+            if (!element) return
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+              e.preventDefault()
+              const delta = e.key === 'ArrowRight' ? 1 : -1
+              const nextTime = Math.min(endS, Math.max(startS, element.currentTime + delta))
+              element.currentTime = nextTime
+              setTime(nextTime)
+            }
+          }}
+        >
+          <div className="h-1 w-full bg-ink-800 transition-all group-hover:h-1.5">
+            <div
+              className="h-full origin-left bg-sodium-500"
+              style={{ transform: `scaleX(${Math.min(1, Math.max(0, elapsed / duration))})` }}
+            />
+          </div>
         </div>
-        <span className="numeric text-xs text-ink-500">
+        <span className="numeric text-xs text-ink-400">
           {formatTimecode(elapsed)} / {formatTimecode(duration)}
         </span>
       </div>

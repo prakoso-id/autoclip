@@ -18,22 +18,22 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-ink-900">
-      <header className="border-b border-ink-800">
-        <div className="mx-auto flex max-w-[1600px] items-baseline gap-8 px-6 py-4 lg:px-10">
+      <header className="sticky top-0 z-30 border-b border-ink-800/90 bg-ink-900/85 backdrop-blur-md">
+        <div className="mx-auto flex max-w-[1600px] items-center gap-8 px-6 py-3.5 lg:px-10">
           <NavLink to="/" className="group flex items-baseline gap-2.5">
-            <span className="font-display text-2xl leading-none text-ink-100">
+            <span className="font-display text-2xl leading-none text-ink-100 transition-colors group-hover:text-white">
               Auto<span className="italic text-sodium-500">Clip</span>
             </span>
           </NavLink>
 
-          <nav className="flex items-baseline gap-6">
+          <nav className="flex items-center gap-1" aria-label="Main navigation">
             <TopLink to="/" end>
-              New
+              Studio
             </TopLink>
             <TopLink to="/settings">Settings</TopLink>
           </nav>
 
-          <div className="ml-auto flex items-baseline gap-5">
+          <div className="ml-auto flex items-center gap-5">
             {system && <SystemBadge system={system} />}
           </div>
         </div>
@@ -61,8 +61,10 @@ function TopLink({
       end={end}
       className={({ isActive }) =>
         [
-          'text-sm font-medium transition-colors duration-200',
-          isActive ? 'text-sodium-500' : 'text-ink-400 hover:text-ink-200',
+          'relative px-3 py-1.5 text-sm font-medium transition-colors duration-200',
+          isActive
+            ? 'text-sodium-500 after:absolute after:inset-x-3 after:-bottom-[15px] after:h-[2px] after:bg-sodium-500'
+            : 'text-ink-400 hover:text-ink-100',
         ].join(' ')
       }
     >
@@ -81,17 +83,34 @@ function TopLink({
 function SystemBadge({ system }: { system: SystemStatus }) {
   const accel = system.accel.toUpperCase()
   return (
-    <div className="hidden items-baseline gap-4 text-xs md:flex">
-      <span className="numeric text-ink-400">
+    <div className="hidden items-center gap-3 border border-ink-800 bg-ink-850/60 px-3 py-1 text-xs md:flex">
+      <span className="numeric flex items-center gap-1.5 text-ink-300">
+        <svg
+          className="size-3.5 text-sodium-500"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          aria-hidden="true"
+        >
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <rect x="9" y="9" width="6" height="6" />
+          <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3" />
+        </svg>
         {accel}
         {system.gpu_name && accel === 'CUDA' && (
-          <span className="text-ink-600"> · {system.gpu_name.replace('NVIDIA GeForce ', '')}</span>
+          <span className="text-ink-500"> · {system.gpu_name.replace('NVIDIA GeForce ', '')}</span>
         )}
       </span>
+      <span className="h-3 w-px bg-ink-700" aria-hidden="true" />
       <span
-        className={system.ready ? 'text-ink-400' : 'text-signal-bad'}
+        className={`flex items-center gap-1.5 ${system.ready ? 'text-ink-300' : 'text-signal-bad'}`}
         title={system.ready ? 'All required components present' : 'Run autoclip doctor'}
       >
+        <span
+          className={`size-1.5 rounded-full ${system.ready ? 'bg-signal-good' : 'bg-signal-bad'}`}
+          aria-hidden="true"
+        />
         {system.ready ? 'ready' : 'not ready'}
       </span>
     </div>

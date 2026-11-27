@@ -125,8 +125,32 @@ export function TrimBar({
           style={{ left: `${left * 100}%`, right: `${(1 - right) * 100}%` }}
         />
 
-        <Handle position={left} edge="start" onGrab={() => setDragging('start')} />
-        <Handle position={right} edge="end" onGrab={() => setDragging('end')} />
+        <Handle
+          position={left}
+          edge="start"
+          onGrab={() => setDragging('start')}
+          onNudge={(delta) => {
+            const nextStart = snap(
+              Math.max(windowStart, Math.min(local.start + delta, local.end - 1)),
+              'start',
+            )
+            setLocal((c) => ({ ...c, start: nextStart }))
+            onCommit(nextStart, local.end)
+          }}
+        />
+        <Handle
+          position={right}
+          edge="end"
+          onGrab={() => setDragging('end')}
+          onNudge={(delta) => {
+            const nextEnd = snap(
+              Math.min(windowEnd, Math.max(local.end + delta, local.start + 1)),
+              'end',
+            )
+            setLocal((c) => ({ ...c, end: nextEnd }))
+            onCommit(local.start, nextEnd)
+          }}
+        />
       </div>
     </div>
   )
@@ -136,23 +160,33 @@ function Handle({
   position,
   edge,
   onGrab,
+  onNudge,
 }: {
   position: number
   edge: 'start' | 'end'
   onGrab: () => void
+  onNudge: (deltaS: number) => void
 }) {
   return (
     <button
+      type="button"
       onPointerDown={(e) => {
         e.preventDefault()
         onGrab()
       }}
-      aria-label={`Drag ${edge} of clip`}
-      className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize"
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault()
+          const step = e.shiftKey ? 0.5 : 0.1
+          onNudge(e.key === 'ArrowRight' ? step : -step)
+        }
+      }}
+      aria-label={`Trim ${edge} handle (use Left/Right arrow keys to nudge)`}
+      className="group absolute inset-y-0 w-6 -translate-x-1/2 cursor-ew-resize"
       style={{ left: `${position * 100}%` }}
     >
-      <span className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-sodium-500" />
-      <span className="absolute left-1/2 top-1/2 h-6 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sodium-400" />
+      <span className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-sodium-500 transition-all group-hover:w-1" />
+      <span className="absolute left-1/2 top-1/2 h-7 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sodium-400 shadow-sm transition-transform group-hover:scale-110" />
     </button>
   )
 }

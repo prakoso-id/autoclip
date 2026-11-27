@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import zipfile
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 
+from .. import paths
 from ..config import load as load_settings
 from ..db import store
 from ..db.models import Job, new_id
@@ -161,3 +165,37 @@ async def job_clips(job_id: str):
     from .clips import list_clips_for_job
 
     return await list_clips_for_job(job_id)
+
+
+@router.get("/{job_id}/exports.zip")
+async def download_job_exports_zip(job_id: str) -> FileResponse:
+    """Bundle all exported MP4 files for a job into a single downloadable ZIP."""
+    job = await asyncio.to_thread(store.get_job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    export_dir = paths.exports_dir() / job_id
+    mp4s = sorted(export_dir.glob("*.mp4")) if export_dir.is_dir() else []
+    if not mp4s:
+        raise HTTPException(status_code=404, detail="No exported clips found for this job.")
+
+    zip_path = paths.job_work_dir(job_id) / f"autoclip-{job_id[:8]}-exports.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _build_zip() -> Path:
+        # ZIP_STORED avoids re-compressing already-compressed H.264 MP4 streams,
+        # making a 500 MB bundle finish in milliseconds instead of seconds.
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
+            for mp4 in mp4s:
+                zf.write(mp4, arcname=mp4.name)
+                srt = mp4.with_suffix(".srt")
+                if srt.is_file():
+                    zf.write(srt, arcname=srt.name)
+        return zip_path
+
+    built = await asyncio.to_thread(_build_zip)
+    return FileResponse(
+        path=built,
+        media_type="application/zip",
+        filename=f"autoclip-{job_id[:8]}-clips.zip",
+    )

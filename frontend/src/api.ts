@@ -359,6 +359,7 @@ export const api = {
     request<void>(`/api/settings/secrets/${key}`, { method: 'DELETE' }),
 
   mediaUrl: (jobId: string) => `/api/jobs/${jobId}/media`,
+  jobExportsZipUrl: (jobId: string) => `/api/jobs/${jobId}/exports.zip`,
 
   compressVideo: (file: File, crf = 23) => {
     const form = new FormData()

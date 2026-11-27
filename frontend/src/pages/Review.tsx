@@ -36,6 +36,8 @@ export function Review() {
     done: number
     total: number
   } | null>(null)
+  const [batchFinishedCount, setBatchFinishedCount] = useState<number | null>(null)
+  const [titleSaved, setTitleSaved] = useState(false)
   const [outroSettings, setOutroSettings] = useState<OutroSettings | null>(null)
   const [introSettings, setIntroSettings] = useState<IntroSettings | null>(null)
   const [includeOutro, setIncludeOutro] = useState(false)
@@ -147,6 +149,8 @@ export function Review() {
     if (!cleaned || cleaned === clip.title) return
     try {
       patchClip(await api.patchClip(clip.id, { title: cleaned }))
+      setTitleSaved(true)
+      window.setTimeout(() => setTitleSaved(false), 1800)
     } catch (err) {
       setError(err as Error)
     }
@@ -181,16 +185,39 @@ export function Review() {
 
   const exportBatch = async (targets: Clip[], kind: 'kept' | 'all') => {
     if (targets.length === 0 || batchExport) return
+    setBatchFinishedCount(null)
     setBatchExport({ kind, done: 0, total: targets.length })
     try {
       for (let i = 0; i < targets.length; i += 1) {
         await exportClip(targets[i])
         setBatchExport({ kind, done: i + 1, total: targets.length })
       }
+      setBatchFinishedCount(targets.length)
     } finally {
       setBatchExport(null)
     }
   }
+
+  useEffect(() => {
+    if (clips.length === 0) return
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault()
+        const idx = clips.findIndex((c) => c.id === selectedId)
+        const next = clips[Math.min(clips.length - 1, idx + 1)]
+        if (next) setSelectedId(next.id)
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault()
+        const idx = clips.findIndex((c) => c.id === selectedId)
+        const prev = clips[Math.max(0, idx - 1)]
+        if (prev) setSelectedId(prev.id)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [clips, selectedId])
 
   const exportKept = () =>
     void exportBatch(
@@ -212,6 +239,7 @@ export function Review() {
 
   const keptCount = clips.filter((clip) => clip.status === 'kept').length
   const exportableCount = clips.filter((clip) => clip.status !== 'discarded').length
+  const exportedCount = clips.filter((clip) => clip.exports.length > 0).length
   const activeStyle = styles.find((style) => style.key === selected?.caption_style)
 
   if (error && clips.length === 0) {
@@ -237,8 +265,8 @@ export function Review() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <span className="numeric mr-2 text-xs text-ink-500">
-            {clips.length} clips · {keptCount} kept
+          <span className="numeric mr-2 text-xs text-ink-400">
+            {clips.length} clips · {keptCount} kept · {exportedCount} exported
           </span>
           <button
             onClick={exportKept}
@@ -258,8 +286,86 @@ export function Review() {
               ? `Exporting ${batchExport.done}/${batchExport.total}…`
               : `Export all (${exportableCount})`}
           </button>
+          {exportedCount > 0 && (
+            <a
+              href={api.jobExportsZipUrl(job.id)}
+              download
+              className="btn btn-ghost border-sodium-500/60 text-sodium-400 hover:border-sodium-400"
+              title="Download all exported MP4 clips as a single ZIP archive"
+            >
+              <svg
+                className="size-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>Download all ({exportedCount} .zip)</span>
+            </a>
+          )}
         </div>
       </div>
+
+      {batchExport && (
+        <div
+          className="mt-5 border border-sodium-500/40 bg-ink-850/80 px-4 py-3"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium text-ink-100">
+              Rendering clips ({batchExport.done} of {batchExport.total} completed)…
+            </span>
+            <span className="numeric text-sodium-500">
+              {Math.round((batchExport.done / Math.max(1, batchExport.total)) * 100)}%
+            </span>
+          </div>
+          <div className="mt-2 h-1 w-full overflow-hidden bg-ink-800">
+            <div
+              className="h-full bg-sodium-500 transition-all duration-300"
+              style={{
+                width: `${(batchExport.done / Math.max(1, batchExport.total)) * 100}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {!batchExport && batchFinishedCount !== null && (
+        <div
+          className="mt-5 flex flex-wrap items-center justify-between gap-4 border border-signal-good/40 bg-signal-good/10 px-4 py-3 text-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2.5 text-ink-100">
+            <span className="text-signal-good" aria-hidden="true">
+              ✓
+            </span>
+            <span>
+              <strong>{batchFinishedCount} clips</strong> finished rendering. Ready to download
+              individually or as a ZIP bundle.
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <a href={api.jobExportsZipUrl(job.id)} download className="btn btn-primary">
+              Download all (.zip)
+            </a>
+            <button
+              type="button"
+              onClick={() => setBatchFinishedCount(null)}
+              className="btn btn-quiet text-xs"
+              aria-label="Dismiss notification"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mt-6 max-w-3xl">
@@ -273,7 +379,10 @@ export function Review() {
         <div className="mt-8 grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,20rem)_minmax(0,26rem)_minmax(0,1fr)]">
           {/* Ranked list */}
           <section className="lg:max-h-[76vh] lg:overflow-y-auto lg:pr-1">
-            <p className="eyebrow border-b border-ink-800 pb-2">Ranked</p>
+            <div className="flex items-baseline justify-between border-b border-ink-800 pb-2">
+              <p className="eyebrow">Ranked</p>
+              <span className="hidden text-[11px] text-ink-500 sm:inline">↑↓ or J/K</span>
+            </div>
             <ul>
               {clips.map((clip, index) => (
                 <li key={clip.id}>
@@ -344,7 +453,12 @@ export function Review() {
               <>
                 <div>
                   <label className="block">
-                    <span className="eyebrow">Clip title &amp; Intro Hook</span>
+                    <div className="flex items-baseline justify-between">
+                      <span className="eyebrow">Clip title &amp; Intro Hook</span>
+                      {titleSaved && (
+                        <span className="text-xs font-medium text-signal-good">Saved ✓</span>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={introText}
@@ -439,7 +553,7 @@ export function Review() {
                       </Link>
                     </div>
 
-                    <label className="flex items-center gap-2.5 text-sm text-ink-200">
+                    <label className="flex cursor-pointer items-center gap-2.5 text-sm text-ink-200">
                       <input
                         type="checkbox"
                         checked={includeIntro}
@@ -449,21 +563,7 @@ export function Review() {
                       Intro Hook banner ({introSettings?.duration_s ?? 3}s)
                     </label>
 
-                    {includeIntro && (
-                      <input
-                        type="text"
-                        value={introText}
-                        onChange={(e) => setIntroText(e.target.value)}
-                        onBlur={() => void commitTitle(selected, introText)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') e.currentTarget.blur()
-                        }}
-                        placeholder="Hook headline…"
-                        className="field text-xs"
-                      />
-                    )}
-
-                    <label className="flex items-center gap-2.5 text-sm text-ink-200">
+                    <label className="flex cursor-pointer items-center gap-2.5 text-sm text-ink-200">
                       <input
                         type="checkbox"
                         checked={includeWatermark}
@@ -480,7 +580,7 @@ export function Review() {
                       </span>
                     </label>
 
-                    <label className="flex items-center gap-2.5 text-sm text-ink-200">
+                    <label className="flex cursor-pointer items-center gap-2.5 text-sm text-ink-200">
                       <input
                         type="checkbox"
                         checked={includeOutro}
@@ -502,20 +602,31 @@ export function Review() {
                   {selected.exports.length > 0 && (
                     <ul className="mt-4 space-y-2">
                       {selected.exports.map((record) => (
-                        <li
-                          key={record.id}
-                          className="flex items-baseline justify-between gap-3 text-xs"
-                        >
+                        <li key={record.id}>
                           <a
                             href={record.download_url}
                             download
-                            className="truncate text-sodium-500 underline underline-offset-4"
+                            className="flex items-center justify-between gap-3 border border-ink-800 bg-ink-850/60 px-3 py-2 text-xs transition-colors hover:border-sodium-500/60 hover:bg-ink-850"
                           >
-                            {record.ratio} · {record.style}
+                            <span className="flex items-center gap-2 font-medium text-sodium-400">
+                              <svg
+                                className="size-3.5 shrink-0"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                aria-hidden="true"
+                              >
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                              </svg>
+                              Download {record.ratio} · {record.style}
+                            </span>
+                            <span className="numeric shrink-0 text-ink-400">
+                              {formatBytes(record.size_bytes)}
+                            </span>
                           </a>
-                          <span className="numeric shrink-0 text-ink-600">
-                            {formatBytes(record.size_bytes)}
-                          </span>
                         </li>
                       ))}
                     </ul>
@@ -548,16 +659,22 @@ function ClipRow({
   return (
     <div
       className={[
-        'rise group grid cursor-pointer grid-cols-[2.25rem_1fr] gap-x-3 border-b border-ink-850 py-3 pl-2 transition-colors duration-200',
-        selected ? 'bg-ink-850/70' : 'hover:bg-ink-850/35',
+        'rise group grid cursor-pointer grid-cols-[2.25rem_1fr] gap-x-3 border-b border-l-2 border-b-ink-850 py-3 pl-2.5 transition-colors duration-200',
+        selected
+          ? 'border-l-sodium-500 bg-ink-850/85'
+          : 'border-l-transparent hover:bg-ink-850/40',
         clip.status === 'discarded' ? 'opacity-40' : '',
       ].join(' ')}
       style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
       onClick={onSelect}
       role="button"
       tabIndex={0}
+      aria-current={selected ? 'true' : undefined}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onSelect()
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect()
+        }
       }}
     >
       {/* The score is the thing you scan by, so it gets the display face. */}
@@ -574,36 +691,39 @@ function ClipRow({
         <p className="truncate text-[0.9375rem] leading-snug text-ink-100">
           {clip.title || 'Untitled clip'}
         </p>
-        <div className="mt-1 flex items-baseline gap-3">
-          <span className="numeric text-xs text-ink-500">{formatDuration(clip.duration_s)}</span>
-          {clip.user_trimmed && <span className="text-xs text-ink-600">trimmed</span>}
+        <div className="mt-1.5 flex items-center gap-2.5">
+          <span className="numeric text-xs text-ink-400">{formatDuration(clip.duration_s)}</span>
+          {clip.user_trimmed && <span className="text-xs text-ink-500">trimmed</span>}
           {clip.exports.length > 0 && (
-            <span className="text-xs text-signal-good">exported</span>
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-signal-good">
+              <span className="size-1.5 rounded-full bg-signal-good" aria-hidden />
+              exported
+            </span>
           )}
 
-          {/* Secondary actions appear on hover or when the row is current —
-              progressive disclosure keeps the scan column clean. */}
-          <span
-            className={[
-              'ml-auto flex gap-3 pr-2 transition-opacity duration-200',
-              selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-            ].join(' ')}
-          >
+          <span className="ml-auto flex items-center gap-1.5 pr-2">
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation()
                 onKeep()
               }}
-              className={`text-xs ${clip.status === 'kept' ? 'text-signal-good' : 'text-ink-400 hover:text-ink-100'}`}
+              className={[
+                'cursor-pointer px-2 py-0.5 text-xs font-medium transition-colors',
+                clip.status === 'kept'
+                  ? 'border border-signal-good/40 bg-signal-good/15 text-signal-good'
+                  : 'text-ink-400 hover:bg-ink-800 hover:text-ink-100',
+              ].join(' ')}
             >
-              {clip.status === 'kept' ? 'kept' : 'keep'}
+              {clip.status === 'kept' ? '✓ kept' : 'keep'}
             </button>
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation()
                 onDiscard()
               }}
-              className="text-xs text-ink-400 hover:text-signal-bad"
+              className="cursor-pointer px-2 py-0.5 text-xs text-ink-400 transition-colors hover:bg-ink-800 hover:text-signal-bad"
             >
               {clip.status === 'discarded' ? 'undo' : 'drop'}
             </button>
