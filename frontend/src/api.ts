@@ -360,6 +360,7 @@ export const api = {
 
   mediaUrl: (jobId: string) => `/api/jobs/${jobId}/media`,
   jobExportsZipUrl: (jobId: string) => `/api/jobs/${jobId}/exports.zip`,
+  clipThumbnailUrl: (clipId: string) => `/api/clips/${clipId}/thumbnail`,
 
   compressVideo: (file: File, crf = 23) => {
     const form = new FormData()

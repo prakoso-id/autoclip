@@ -322,6 +322,24 @@ class TestClips:
 
         assert len(clips) == 3
         assert [c["rank"] for c in clips] == [1, 2, 3]
+
+    def test_clip_thumbnail_serves_nearest_frame(
+        self, client: TestClient, job_with_clips: Job
+    ) -> None:
+        from autoclip.pipeline.runner import JobWorkspace
+
+        clips = client.get(f"/api/jobs/{job_with_clips.id}/clips").json()
+        clip_id = clips[0]["id"]
+        assert client.get(f"/api/clips/{clip_id}/thumbnail").status_code == 404
+
+        thumbs_dir = JobWorkspace(job_with_clips.id).thumbnails
+        thumbs_dir.mkdir(parents=True, exist_ok=True)
+        (thumbs_dir / "thumb_0001.jpg").write_bytes(b"fake-jpg-1")
+
+        res = client.get(f"/api/clips/{clip_id}/thumbnail")
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "image/jpeg"
+        assert res.content == b"fake-jpg-1"
         assert clips[0]["duration_s"] == pytest.approx(40.0)
 
     def test_patch_title_and_status(self, client: TestClient, job_with_clips: Job) -> None:

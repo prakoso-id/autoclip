@@ -105,6 +105,23 @@ async def clip_crop_path(clip_id: str) -> dict:
     return (await asyncio.to_thread(CropPath.load, cached)).to_dict()
 
 
+@router.get("/clips/{clip_id}/thumbnail")
+async def clip_thumbnail(clip_id: str) -> FileResponse:
+    """Return the pre-generated frame thumbnail nearest to the clip's opening seconds."""
+    clip = await asyncio.to_thread(store.get_clip, clip_id)
+    if clip is None:
+        raise HTTPException(status_code=404, detail="Clip not found.")
+
+    thumbs_dir = JobWorkspace(clip.job_id).thumbnails
+    thumbs = sorted(thumbs_dir.glob("thumb_*.jpg")) if thumbs_dir.is_dir() else []
+    if not thumbs:
+        raise HTTPException(status_code=404, detail="No thumbnails available for this source.")
+
+    # generate_thumbnails samples at 1 frame per 10s (1-indexed).
+    index = min(len(thumbs) - 1, max(0, int((clip.start_s + 2.0) // 10)))
+    return FileResponse(path=thumbs[index], media_type="image/jpeg")
+
+
 @router.patch("/clips/{clip_id}", response_model=ClipOut)
 async def patch_clip(clip_id: str, payload: ClipPatchIn) -> ClipOut:
     """Trim, retitle, or keep/discard a clip.

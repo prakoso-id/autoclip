@@ -71,16 +71,21 @@ export function Settings() {
   if (!settings) return <p className="pt-24 text-sm text-ink-500">Loading…</p>
 
   return (
-    <div className="max-w-4xl pt-14">
-      <div className="rise flex items-baseline justify-between border-b border-ink-800 pb-5">
-        <h1 className="font-display text-[clamp(2rem,4vw,3rem)] leading-none text-ink-100">
-          Settings
-        </h1>
+    <div className="max-w-4xl space-y-5">
+      <div className="studio-card rise flex items-center justify-between px-6 py-4">
+        <div>
+          <span className="numeric text-xs font-bold uppercase tracking-wider text-sodium-500">
+            Studio Configuration
+          </span>
+          <h1 className="mt-0.5 text-2xl font-extrabold tracking-tight text-ink-100">
+            Settings
+          </h1>
+        </div>
         <span
-          className="text-xs text-signal-good transition-opacity duration-300"
+          className="rounded-lg bg-[#D1FAE5] px-2.5 py-1 text-xs font-bold text-[#065F46] transition-opacity duration-300"
           style={{ opacity: saved ? 1 : 0 }}
         >
-          saved
+          ✓ Saved
         </span>
       </div>
 
@@ -548,10 +553,10 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className="rise mt-14">
-      <div className="border-b border-ink-800 pb-2">
-        <h2 className="eyebrow">{title}</h2>
-        {note && <p className="mt-1 text-xs text-ink-500">{note}</p>}
+    <section className="studio-card rise p-6">
+      <div className="border-b border-ink-800 pb-3">
+        <h2 className="text-sm font-extrabold text-ink-100">{title}</h2>
+        {note && <p className="mt-0.5 text-xs text-ink-500">{note}</p>}
       </div>
       <div className="mt-5">{children}</div>
     </section>

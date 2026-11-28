@@ -190,7 +190,7 @@ export function ClipPlayer({
   return (
     <div className="mx-auto flex w-full flex-col items-stretch" style={{ maxWidth }}>
       <div
-        className="relative w-full overflow-hidden bg-ink-850"
+        className="relative w-full overflow-hidden rounded-xl border border-[#2A2A28] bg-black shadow-xl"
         style={{ aspectRatio: `${aspectW} / ${aspectH}` }}
         onClick={toggle}
         role="button"
@@ -240,7 +240,7 @@ export function ClipPlayer({
 
         {!playing && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="grid size-16 place-items-center rounded-full border border-ink-700/80 bg-ink-900/80 text-ink-100 shadow-lg backdrop-blur-xs transition-transform duration-200">
+            <span className="grid size-14 place-items-center rounded-full border border-white/20 bg-black/70 text-white shadow-lg backdrop-blur-xs">
               <svg
                 className="ml-0.5 size-6"
                 viewBox="0 0 24 24"
@@ -254,11 +254,11 @@ export function ClipPlayer({
         )}
       </div>
 
-      <div className="mt-3 flex w-full items-center gap-3">
+      <div className="mt-3 flex w-full items-center gap-3 text-white">
         <button
           type="button"
           onClick={toggle}
-          className="btn btn-quiet -ml-1 w-16 justify-start gap-1.5"
+          className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-bold text-white hover:text-[#FB7185]"
         >
           {playing ? (
             <svg className="size-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -278,7 +278,6 @@ export function ClipPlayer({
           muted={muted}
           onVolume={(next) => {
             setVolume(next)
-            // Dragging the slider up is an unambiguous "I want to hear this".
             if (next > 0) setMuted(false)
           }}
           onToggleMute={() => setMuted((current) => !current)}
@@ -313,14 +312,14 @@ export function ClipPlayer({
             }
           }}
         >
-          <div className="h-1 w-full bg-ink-800 transition-all group-hover:h-1.5">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#2A2A28]">
             <div
-              className="h-full origin-left bg-sodium-500"
+              className="h-full origin-left bg-[#E11D48]"
               style={{ transform: `scaleX(${Math.min(1, Math.max(0, elapsed / duration))})` }}
             />
           </div>
         </div>
-        <span className="numeric text-xs text-ink-400">
+        <span className="numeric text-xs text-[#A1A09A]">
           {formatTimecode(elapsed)} / {formatTimecode(duration)}
         </span>
       </div>

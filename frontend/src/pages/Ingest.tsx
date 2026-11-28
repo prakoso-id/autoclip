@@ -15,6 +15,7 @@ import { ErrorNote } from '../components/ErrorNote'
 
 export function Ingest() {
   const navigate = useNavigate()
+  const [activeTab, setActiveTab] = useState<'clips' | 'compress'>('clips')
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState<'url' | 'file' | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
@@ -26,7 +27,7 @@ export function Ingest() {
   const fileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    api.listJobs(8).then(setJobs).catch(() => undefined)
+    api.listJobs(10).then(setJobs).catch(() => undefined)
     api.providerStatus().then(setProviders).catch(() => undefined)
     api
       .getSettings()
@@ -69,178 +70,187 @@ export function Ingest() {
   const usableProvider = providers.find((p) => p.available)
 
   return (
-    <div className="pt-14">
-      {/* Masthead. Left-aligned and asymmetric — the field is the subject, not
-          a centred hero card. */}
-      <div className="rise max-w-3xl">
-        <p className="eyebrow">Local · No accounts · No watermarks</p>
-        <h1 className="mt-5 font-display text-[clamp(2.75rem,7vw,5.5rem)] leading-[0.95] text-ink-100">
-          Long video in.
-          <br />
-          <span className="italic text-sodium-500">Shorts</span> out.
-        </h1>
-      </div>
-
-      <div className="mt-16 grid gap-x-16 gap-y-12 lg:grid-cols-[1.35fr_1fr]">
-        {/* URL */}
-        <section className="rise" style={{ animationDelay: '90ms' }}>
-          <form onSubmit={submitUrl}>
-            <label htmlFor="url" className="eyebrow">
-              Paste a link
-            </label>
-            <div className="mt-3 flex items-end gap-4">
-              <input
-                id="url"
-                className="field font-display text-xl md:text-2xl"
-                placeholder="https://youtube.com/watch?v=…"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={busy !== null}
-              />
-              <button
-                type="submit"
-                className="btn btn-primary shrink-0"
-                disabled={busy !== null || !url.trim()}
-              >
-                {busy === 'url' ? (
-                  'Fetching…'
-                ) : (
-                  <>
-                    <span>Start</span>
-                    <svg
-                      className="size-3.5"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      aria-hidden="true"
-                    >
-                      <path d="M5 12h14M13 5l7 7-7 7" />
-                    </svg>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-
-          <p className="mt-3 text-xs leading-relaxed text-ink-500">
-            Only download video you own or have the rights to process.
-          </p>
-
-          <div className="mt-7">
-            <label htmlFor="transcription-context" className="eyebrow">
-              Transcription context / keywords (optional)
-            </label>
-            <input
-              id="transcription-context"
-              className="field mt-2 text-sm"
-              placeholder="Contoh: Podcast Obrolan Tiba-tiba bahas anime Giant Killing, Dead End Job, Webtoon…"
-              value={overrides.initial_prompt ?? ''}
-              onChange={(e) =>
-                setOverrides((prev) => ({ ...prev, initial_prompt: e.target.value }))
-              }
-              disabled={busy !== null}
-            />
-            <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
-              Berlaku untuk link YouTube maupun upload file — bantu Whisper mengeja nama, judul, dan
-              istilah asing dengan akurat.
-            </p>
-          </div>
-
-          <AdvancedOptions
-            open={advancedOpen}
-            onToggle={() => setAdvancedOpen((v) => !v)}
-            overrides={overrides}
-            onChange={setOverrides}
-            providers={providers}
-          />
-        </section>
-
-        {/* Upload */}
-        <section className="rise" style={{ animationDelay: '160ms' }}>
-          <p className="eyebrow">Or drop a file</p>
-          <div
-            onDragOver={(e) => {
-              e.preventDefault()
-              setDragging(true)
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setDragging(false)
-              const file = e.dataTransfer.files[0]
-              if (file) submitFile(file)
-            }}
-            className={[
-              'group mt-3 flex min-h-56 cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed px-6 text-center transition-all duration-200',
-              dragging
-                ? 'border-sodium-500 bg-sodium-700/15'
-                : 'border-ink-700 bg-ink-850/35 hover:border-ink-500 hover:bg-ink-850/70',
-            ].join(' ')}
-            onClick={() => fileInput.current?.click()}
-            role="button"
-            tabIndex={0}
-            aria-label="Upload local video or audio file"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                fileInput.current?.click()
-              }
-            }}
-          >
-            <span className="grid size-10 place-items-center rounded-full border border-ink-700 bg-ink-900/80 text-ink-300 transition-colors group-hover:border-sodium-500/60 group-hover:text-sodium-500">
-              <svg
-                className="size-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                aria-hidden="true"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-            </span>
-            <span className="font-display text-2xl text-ink-100">
-              {busy === 'file' ? 'Uploading…' : 'Drop video or audio'}
-            </span>
-            <span className="text-xs text-ink-500">mp4 · mov · mkv · webm · mp3 · wav · m4a</span>
-          </div>
-          <input
-            ref={fileInput}
-            type="file"
-            className="hidden"
-            accept="video/*,audio/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) submitFile(file)
-              e.target.value = ''
-            }}
-          />
-        </section>
-      </div>
-
-      {error && (
-        <div className="mt-10 max-w-3xl">
-          <ErrorNote error={error} onDismiss={() => setError(null)} />
+    <div className="space-y-6">
+      {/* Top Studio Header Bar */}
+      <div className="studio-card flex flex-wrap items-center justify-between gap-4 px-6 py-4">
+        <div>
+          <span className="numeric text-xs font-bold uppercase tracking-wider text-[#E11D48]">
+            AutoClip Daylight Studio · Local AI Pipeline
+          </span>
+          <h1 className="mt-0.5 text-2xl font-extrabold tracking-tight text-[#171715]">
+            Long video in. Vertical Shorts out.
+          </h1>
         </div>
-      )}
+
+        {/* Clean Segmented Mode Switcher */}
+        <div className="inline-flex rounded-xl border border-[#DCD9D0] bg-[#EAE8E1] p-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('clips')}
+            className={[
+              'cursor-pointer rounded-lg px-4 py-1.5 text-xs font-bold transition-all',
+              activeTab === 'clips'
+                ? 'bg-white text-[#171715] shadow-2xs'
+                : 'text-[#57564F] hover:text-[#171715]',
+            ].join(' ')}
+          >
+            Create Clips
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('compress')}
+            className={[
+              'cursor-pointer rounded-lg px-4 py-1.5 text-xs font-bold transition-all',
+              activeTab === 'compress'
+                ? 'bg-white text-[#171715] shadow-2xs'
+                : 'text-[#57564F] hover:text-[#171715]',
+            ].join(' ')}
+          >
+            H.264 Compressor
+          </button>
+        </div>
+      </div>
+
+      {error && <ErrorNote error={error} onDismiss={() => setError(null)} />}
 
       {providers.length > 0 && !usableProvider && (
-        <p className="mt-10 max-w-3xl border-l-2 border-sodium-600 pl-4 text-sm text-ink-300">
-          No AI provider is reachable yet, so clip selection will fail. Add an API key or
-          start Ollama in{' '}
-          <a href="/settings" className="text-sodium-500 underline underline-offset-4">
+        <div className="studio-card border-[#FDE68A] bg-[#FFFBEB] px-5 py-3.5 text-sm text-[#92400E]">
+          No AI provider is reachable yet, so clip selection will fail. Add an API key or start
+          Ollama in{' '}
+          <a href="/settings" className="font-bold text-[#E11D48] underline">
             Settings
           </a>
           .
-        </p>
+        </div>
       )}
 
-      <CompressTool />
+      {activeTab === 'clips' ? (
+        <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
+          {/* Left Card: YouTube URL + Transcription Context */}
+          <section className="studio-card flex flex-col justify-between p-6">
+            <div className="space-y-5">
+              <form onSubmit={submitUrl}>
+                <label htmlFor="url" className="eyebrow">
+                  Paste YouTube Link
+                </label>
+                <div className="mt-2 flex gap-2.5">
+                  <input
+                    id="url"
+                    className="field text-base font-medium"
+                    placeholder="https://youtube.com/watch?v=…"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={busy !== null}
+                  />
+                  <button
+                    type="submit"
+                    className="btn btn-primary shrink-0 px-5"
+                    disabled={busy !== null || !url.trim()}
+                  >
+                    {busy === 'url' ? 'Fetching…' : 'Start Job'}
+                  </button>
+                </div>
+              </form>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="transcription-context" className="eyebrow">
+                    Transcription Context / Keywords (Optional)
+                  </label>
+                  <span className="numeric text-[11px] font-semibold text-[#737168]">
+                    Whisper Initial Prompt
+                  </span>
+                </div>
+                <input
+                  id="transcription-context"
+                  className="field mt-1.5 text-sm"
+                  placeholder="Contoh: Podcast Obrolan Tiba-tiba bahas anime Giant Killing, Dead End Job, Webtoon…"
+                  value={overrides.initial_prompt ?? ''}
+                  onChange={(e) =>
+                    setOverrides((prev) => ({ ...prev, initial_prompt: e.target.value }))
+                  }
+                  disabled={busy !== null}
+                />
+                <p className="mt-1.5 text-xs text-[#737168]">
+                  Applies to both YouTube URLs and local uploads — guides Whisper on host names,
+                  titles, and Indonesian/English terms.
+                </p>
+              </div>
+            </div>
+
+            <AdvancedOptions
+              open={advancedOpen}
+              onToggle={() => setAdvancedOpen((v) => !v)}
+              overrides={overrides}
+              onChange={setOverrides}
+              providers={providers}
+            />
+          </section>
+
+          {/* Right Card: Local Video / Audio Dropzone */}
+          <section className="studio-card flex flex-col justify-between p-6">
+            <div>
+              <span className="eyebrow">Or Upload Local Media</span>
+              <p className="mt-1 text-xs text-[#737168]">
+                Process a local podcast recording directly without uploading to the cloud.
+              </p>
+            </div>
+
+            <div
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDragging(true)
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragging(false)
+                const file = e.dataTransfer.files[0]
+                if (file) submitFile(file)
+              }}
+              onClick={() => fileInput.current?.click()}
+              role="button"
+              tabIndex={0}
+              aria-label="Upload local video or audio file"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  fileInput.current?.click()
+                }
+              }}
+              className={[
+                'mt-4 flex min-h-52 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 text-center transition-all',
+                dragging
+                  ? 'border-[#E11D48] bg-[#FFF1F2]'
+                  : 'border-[#D2CFC6] bg-[#FAF9F6] hover:border-[#171715] hover:bg-white',
+              ].join(' ')}
+            >
+              <span className="text-lg font-extrabold text-[#171715]">
+                {busy === 'file' ? 'Uploading…' : 'Drop video or audio file here'}
+              </span>
+              <span className="numeric text-xs font-medium text-[#737168]">
+                MP4 · MOV · MKV · WEBM · MP3 · WAV · M4A
+              </span>
+            </div>
+
+            <input
+              ref={fileInput}
+              type="file"
+              className="hidden"
+              accept="video/*,audio/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) submitFile(file)
+                e.target.value = ''
+              }}
+            />
+          </section>
+        </div>
+      ) : (
+        <CompressTool />
+      )}
 
       <RecentJobs jobs={jobs} />
     </div>
@@ -276,30 +286,26 @@ function CompressTool() {
   }
 
   return (
-    <section className="rise mt-20" style={{ animationDelay: '200ms' }}>
-      <div className="flex flex-wrap items-baseline justify-between gap-4 border-b border-ink-800 pb-3">
+    <section className="studio-card p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="eyebrow">Compress video · H.264 Visually Lossless</h2>
-          <p className="mt-1 text-xs text-ink-500">
-            Perkecil ukuran video 50–65% tanpa penurunan kualitas yang terlihat — cocok untuk
-            TikTok, Reels, Shorts, & WhatsApp.
+          <span className="eyebrow">H.264 Visually Lossless Compressor</span>
+          <p className="mt-1 text-xs text-[#737168]">
+            Shrink video file size by 50–65% with no visible quality loss — 100% compatible with
+            TikTok, Reels, Shorts, and WhatsApp.
           </p>
         </div>
 
-        <label className="flex items-center gap-2 text-xs text-ink-400">
-          <span>Mode:</span>
+        <label className="flex items-center gap-2 text-xs font-semibold text-[#57564F]">
+          <span>Preset:</span>
           <select
             value={crf}
             disabled={progress !== null}
             onChange={(e) => setCrf(Number(e.target.value))}
-            className="field w-auto cursor-pointer py-1 text-xs"
+            className="field w-auto cursor-pointer py-1.5 text-xs font-bold"
           >
-            <option value={23} className="bg-ink-850">
-              Visually lossless (CRF 23)
-            </option>
-            <option value={26} className="bg-ink-850">
-              Extra compact (CRF 26)
-            </option>
+            <option value={23}>Visually Lossless · Social (CRF 23)</option>
+            <option value={26}>Extra Compact · Smallest (CRF 26)</option>
           </select>
         </label>
       </div>
@@ -320,36 +326,24 @@ function CompressTool() {
         tabIndex={0}
         onKeyDown={(e) => {
           if ((e.key === 'Enter' || e.key === ' ') && progress === null) {
+            e.preventDefault()
             inputRef.current?.click()
           }
         }}
         className={[
-          'group mt-4 flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 border border-dashed px-6 py-5 text-center transition-all duration-200',
+          'mt-4 flex min-h-40 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed px-6 py-6 text-center transition-all',
           dragging
-            ? 'border-sodium-500 bg-sodium-700/15'
-            : 'border-ink-700 bg-ink-850/35 hover:border-ink-500 hover:bg-ink-850/70',
+            ? 'border-[#E11D48] bg-[#FFF1F2]'
+            : 'border-[#D2CFC6] bg-[#FAF9F6] hover:border-[#171715] hover:bg-white',
         ].join(' ')}
       >
-        <span className="flex items-center gap-2 font-display text-xl text-ink-100">
-          <svg
-            className="size-4 text-sodium-500"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            aria-hidden="true"
-          >
-            <polyline points="4 14 10 14 10 20" />
-            <polyline points="20 10 14 10 14 4" />
-            <line x1="14" y1="10" x2="21" y2="3" />
-            <line x1="3" y1="21" x2="10" y2="14" />
-          </svg>
+        <span className="text-lg font-extrabold text-[#171715]">
           {progress
             ? `Compressing ${progress.current}/${progress.total} · ${progress.name}…`
-            : 'Drop video(s) to compress'}
+            : 'Drop 1 or multiple videos here to compress'}
         </span>
-        <span className="text-xs text-ink-500">
-          Bisa pilih 1 atau banyak file sekaligus · mp4 · mov · mkv · webm
+        <span className="numeric text-xs font-medium text-[#737168]">
+          Batch supported · MP4 · MOV · MKV · WEBM
         </span>
       </div>
 
@@ -366,16 +360,16 @@ function CompressTool() {
       />
 
       {error && (
-        <div className="mt-4 max-w-3xl">
+        <div className="mt-4">
           <ErrorNote error={error} onDismiss={() => setError(null)} />
         </div>
       )}
 
       {results.length > 0 && (
-        <div className="mt-4">
-          <div className="flex items-center justify-between pb-2">
-            <span className="numeric text-xs text-ink-400">
-              {results.length} compressed file{results.length > 1 ? 's' : ''} ready
+        <div className="mt-5">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="numeric text-xs font-bold text-[#57564F]">
+              {results.length} Compressed File{results.length > 1 ? 's' : ''}
             </span>
             <button
               type="button"
@@ -385,62 +379,27 @@ function CompressTool() {
               Clear list
             </button>
           </div>
-          <ul className="divide-y divide-ink-800 border-y border-ink-800 bg-ink-850/30">
-            {results.map((item) => {
-              const ratio =
-                item.original_bytes > 0
-                  ? Math.min(100, Math.round((item.compressed_bytes / item.original_bytes) * 100))
-                  : 100
-              return (
-                <li
-                  key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 text-sm"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-ink-100">{item.filename}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-3">
-                      <span className="numeric text-xs text-ink-400">
-                        {formatBytes(item.original_bytes)} →{' '}
-                        <strong className="text-ink-100">
-                          {formatBytes(item.compressed_bytes)}
-                        </strong>
-                      </span>
-                      <span className="numeric inline-flex items-center border border-signal-good/40 bg-signal-good/10 px-1.5 py-0.5 text-[11px] font-semibold text-signal-good">
-                        -{item.saved_percent.toFixed(0)}% saved
-                      </span>
-                      <div
-                        className="hidden h-1 w-24 overflow-hidden bg-ink-800 sm:block"
-                        title={`Compressed to ${ratio}% of original size`}
-                      >
-                        <div
-                          className="h-full bg-signal-good"
-                          style={{ width: `${ratio}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <a
-                    href={item.download_url}
-                    download={item.filename}
-                    className="btn btn-primary"
-                  >
-                    <svg
-                      className="size-3.5"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      aria-hidden="true"
-                    >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                    <span>Download</span>
-                  </a>
-                </li>
-              )
-            })}
+          <ul className="divide-y divide-[#EAE8E1] rounded-xl border border-[#E2E0D8] bg-[#FAF9F6]">
+            {results.map((item) => (
+              <li
+                key={item.id}
+                className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-bold text-[#171715]">{item.filename}</p>
+                  <p className="numeric mt-0.5 text-xs text-[#57564F]">
+                    {formatBytes(item.original_bytes)} →{' '}
+                    <strong className="text-[#171715]">{formatBytes(item.compressed_bytes)}</strong>
+                    <span className="ml-2 rounded-md bg-[#D1FAE5] px-1.5 py-0.5 text-[11px] font-bold text-[#065F46]">
+                      -{item.saved_percent.toFixed(0)}% saved
+                    </span>
+                  </p>
+                </div>
+                <a href={item.download_url} download={item.filename} className="btn btn-dark">
+                  ⬇ Download MP4
+                </a>
+              </li>
+            ))}
           </ul>
         </div>
       )}
@@ -465,90 +424,76 @@ function AdvancedOptions({
     onChange({ ...overrides, [key]: value })
 
   return (
-    <div className="mt-8">
-      <button type="button" onClick={onToggle} className="btn btn-quiet -ml-1">
-        <span
-          className="inline-block transition-transform duration-300"
-          style={{ transform: open ? 'rotate(90deg)' : 'none' }}
-          aria-hidden
-        >
-          ›
-        </span>
-        {open ? 'Hide options' : 'Options'}
+    <div className="mt-5 border-t border-[#EAE8E1] pt-4">
+      <button type="button" onClick={onToggle} className="btn btn-quiet -ml-2 text-xs font-bold">
+        <span>{open ? '▾ Hide Job Overrides' : '▸ Job Overrides (Model, Clip Count, Length)'}</span>
       </button>
 
-      {/* grid-template-rows rather than height, so the reveal animates without
-          touching layout properties. */}
-      <div
-        className="grid transition-[grid-template-rows] duration-400 ease-[cubic-bezier(0.16,1,0.3,1)]"
-        style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
-      >
-        <div className="overflow-hidden">
-          <div className="grid gap-x-8 gap-y-5 pt-5 sm:grid-cols-2">
-            <Selector
-              label="Provider"
-              value={overrides.provider ?? ''}
-              onChange={(v) => set('provider', v || undefined)}
-              options={[
-                { value: '', label: 'Use default' },
-                ...providers.map((p) => ({
-                  value: p.name,
-                  label: p.available ? p.name : `${p.name} — unavailable`,
-                  disabled: !p.available,
-                })),
-              ]}
-            />
-            <Selector
-              label="Whisper model"
-              value={overrides.whisper_model ?? ''}
-              onChange={(v) => set('whisper_model', v || undefined)}
-              options={[
-                { value: '', label: 'Use default' },
-                { value: 'tiny', label: 'tiny — fastest, roughest' },
-                { value: 'base', label: 'base' },
-                { value: 'small', label: 'small — balanced' },
-                { value: 'medium', label: 'medium' },
-                { value: 'large-v3', label: 'large-v3 — slowest, best' },
-              ]}
+      {open && (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Selector
+            label="Provider"
+            value={overrides.provider ?? ''}
+            onChange={(v) => set('provider', v || undefined)}
+            options={[
+              { value: '', label: 'Use default' },
+              ...providers.map((p) => ({
+                value: p.name,
+                label: p.available ? p.name : `${p.name} — unavailable`,
+                disabled: !p.available,
+              })),
+            ]}
+          />
+          <Selector
+            label="Whisper model"
+            value={overrides.whisper_model ?? ''}
+            onChange={(v) => set('whisper_model', v || undefined)}
+            options={[
+              { value: '', label: 'Use default' },
+              { value: 'tiny', label: 'tiny — fastest' },
+              { value: 'base', label: 'base' },
+              { value: 'small', label: 'small — balanced' },
+              { value: 'medium', label: 'medium' },
+              { value: 'large-v3', label: 'large-v3 — most accurate' },
+            ]}
+          />
+          <NumberField
+            label="Max clips"
+            value={overrides.max_clips}
+            placeholder="10"
+            min={1}
+            max={50}
+            onChange={(v) => set('max_clips', v)}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Min length (s)"
+              value={overrides.min_duration_s}
+              placeholder="20"
+              min={5}
+              max={300}
+              onChange={(v) => set('min_duration_s', v)}
             />
             <NumberField
-              label="Max clips"
-              value={overrides.max_clips}
-              placeholder="10"
-              min={1}
-              max={50}
-              onChange={(v) => set('max_clips', v)}
+              label="Max length (s)"
+              value={overrides.max_duration_s}
+              placeholder="90"
+              min={5}
+              max={300}
+              onChange={(v) => set('max_duration_s', v)}
             />
-            <div className="grid grid-cols-2 gap-4">
-              <NumberField
-                label="Min length (s)"
-                value={overrides.min_duration_s}
-                placeholder="20"
-                min={5}
-                max={300}
-                onChange={(v) => set('min_duration_s', v)}
-              />
-              <NumberField
-                label="Max length (s)"
-                value={overrides.max_duration_s}
-                placeholder="90"
-                min={5}
-                max={300}
-                onChange={(v) => set('max_duration_s', v)}
-              />
-            </div>
-            <label className="flex items-center gap-3 text-sm text-ink-200 sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={overrides.diarization ?? false}
-                onChange={(e) => set('diarization', e.target.checked || undefined)}
-                className="size-4 accent-sodium-500"
-              />
-              Multiple speakers — label who is talking, and cut to them
-            </label>
           </div>
+          <label className="flex cursor-pointer items-center gap-2.5 text-xs font-semibold text-[#3D3C37] sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={overrides.diarization ?? false}
+              onChange={(e) => set('diarization', e.target.checked || undefined)}
+              className="size-4 accent-[#E11D48]"
+            />
+            Multiple speakers — identify hosts and color-code captions
+          </label>
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -570,15 +515,10 @@ function Selector({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="field mt-1 cursor-pointer text-sm"
+        className="field mt-1 cursor-pointer text-xs font-semibold"
       >
         {options.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
-            disabled={option.disabled}
-            className="bg-ink-850"
-          >
+          <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
         ))}
@@ -607,12 +547,15 @@ function NumberField({
       <span className="eyebrow">{label}</span>
       <input
         type="number"
-        className="field numeric mt-1 text-sm"
-        placeholder={placeholder}
-        value={value ?? ''}
         min={min}
         max={max}
-        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
+        placeholder={placeholder}
+        value={value ?? ''}
+        onChange={(e) => {
+          const parsed = Number(e.target.value)
+          onChange(e.target.value === '' || Number.isNaN(parsed) ? undefined : parsed)
+        }}
+        className="numeric field mt-1 text-xs font-semibold"
       />
     </label>
   )
@@ -625,25 +568,27 @@ function RecentJobs({ jobs }: { jobs: Job[] }) {
   const filtered = jobs.filter((j) => (filter === 'all' ? true : j.status === filter))
 
   return (
-    <section className="rise mt-24" style={{ animationDelay: '240ms' }}>
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-ink-800 pb-3">
-        <div className="flex items-baseline gap-3">
-          <h2 className="eyebrow">Recent sessions</h2>
-          <span className="numeric text-xs text-ink-500">{jobs.length}</span>
+    <section className="studio-card p-6">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-sm font-extrabold text-[#171715]">Recent Sessions</h2>
+          <span className="numeric rounded-full bg-[#EAE8E1] px-2 py-0.5 text-xs font-bold text-[#57564F]">
+            {jobs.length}
+          </span>
         </div>
 
         {jobs.length > 2 && (
-          <div className="flex items-center gap-1 text-xs">
+          <div className="inline-flex rounded-lg border border-[#E2E0D8] bg-[#FAF9F6] p-0.5 text-xs">
             {(['all', 'done', 'failed'] as const).map((key) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setFilter(key)}
                 className={[
-                  'cursor-pointer px-2.5 py-1 capitalize transition-colors',
+                  'cursor-pointer rounded-md px-2.5 py-1 font-bold capitalize transition-colors',
                   filter === key
-                    ? 'bg-ink-800 text-ink-100'
-                    : 'text-ink-400 hover:text-ink-200',
+                    ? 'bg-[#171715] text-white'
+                    : 'text-[#57564F] hover:text-[#171715]',
                 ].join(' ')}
               >
                 {key}
@@ -653,28 +598,28 @@ function RecentJobs({ jobs }: { jobs: Job[] }) {
         )}
       </div>
 
-      <ul>
+      <ul className="divide-y divide-[#EAE8E1] rounded-xl border border-[#EAE8E1] bg-[#FAF9F6]">
         {filtered.map((job) => (
           <li key={job.id}>
             <a
               href={job.status === 'done' ? `/jobs/${job.id}/clips` : `/jobs/${job.id}`}
-              className="group grid grid-cols-[1fr_auto] items-center gap-4 border-b border-ink-850 px-2 py-4 transition-colors duration-200 hover:bg-ink-850/55 sm:grid-cols-[1fr_7rem_6rem_7.5rem]"
+              className="group grid grid-cols-[1fr_auto] items-center gap-4 px-4 py-3.5 transition-colors hover:bg-white sm:grid-cols-[1fr_6.5rem_6rem_7.5rem]"
             >
               <div className="min-w-0">
-                <span className="block truncate text-[0.9375rem] font-medium text-ink-200 transition-colors group-hover:text-ink-100">
+                <span className="block truncate text-sm font-bold text-[#171715] group-hover:text-[#E11D48]">
                   {job.source?.title || 'Untitled'}
                 </span>
                 {job.error && job.status === 'failed' && (
-                  <span className="mt-0.5 block truncate text-xs text-signal-bad/90">
-                    {job.error}
-                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-[#DC2626]">{job.error}</span>
                 )}
               </div>
-              <span className="numeric hidden text-xs text-ink-400 sm:block">
+              <span className="numeric hidden text-xs font-medium text-[#737168] sm:block">
                 {job.source ? formatDuration(job.source.duration_s) : '—'}
               </span>
-              <span className="hidden text-xs text-ink-400 sm:block">{job.provider}</span>
-              <StatusTag job={job} />
+              <span className="numeric hidden text-xs font-medium text-[#737168] sm:block">
+                {job.provider}
+              </span>
+              <StatusBadge job={job} />
             </a>
           </li>
         ))}
@@ -683,33 +628,27 @@ function RecentJobs({ jobs }: { jobs: Job[] }) {
   )
 }
 
-function StatusTag({ job }: { job: Job }) {
-  const tone: Record<string, string> = {
-    done: 'text-signal-good',
-    failed: 'text-signal-bad',
-    running: 'text-sodium-500',
-    queued: 'text-ink-400',
-    cancelled: 'text-ink-500',
-  }
-  const dot: Record<string, string> = {
-    done: 'bg-signal-good',
-    failed: 'bg-signal-bad',
-    running: 'bg-sodium-500 animate-pulse',
-    queued: 'bg-ink-400',
-    cancelled: 'bg-ink-500',
+function StatusBadge({ job }: { job: Job }) {
+  const styles: Record<string, string> = {
+    done: 'bg-[#D1FAE5] text-[#065F46]',
+    failed: 'bg-[#FEE2E2] text-[#991B1B]',
+    running: 'bg-[#FFE4E6] text-[#E11D48]',
+    queued: 'bg-[#EAE8E1] text-[#57564F]',
+    cancelled: 'bg-[#EAE8E1] text-[#737168]',
   }
   const label =
     job.status === 'running'
       ? `${Math.round(job.progress * 100)}%`
       : job.status === 'done'
-        ? 'Review →'
+        ? 'Review Clips →'
         : job.status
 
   return (
     <span
-      className={`numeric inline-flex items-center justify-self-end gap-1.5 text-xs font-medium ${tone[job.status] ?? 'text-ink-400'}`}
+      className={`numeric inline-flex items-center justify-self-end rounded-lg px-2.5 py-1 text-xs font-bold ${
+        styles[job.status] ?? 'bg-[#EAE8E1] text-[#57564F]'
+      }`}
     >
-      <span className={`size-1.5 rounded-full ${dot[job.status] ?? 'bg-ink-500'}`} aria-hidden />
       {label}
     </span>
   )

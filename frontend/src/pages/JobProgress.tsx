@@ -60,15 +60,15 @@ export function JobProgress() {
   }
 
   return (
-    <div className="pt-14">
-      <div className="rise flex flex-wrap items-baseline justify-between gap-6 border-b border-ink-800 pb-6">
+    <div className="space-y-6">
+      <div className="studio-card rise flex flex-wrap items-center justify-between gap-6 px-6 py-5">
         <div className="min-w-0">
           <p className="eyebrow">{job.status}</p>
-          <h1 className="mt-2 max-w-3xl truncate font-display text-[clamp(1.75rem,4vw,3rem)] leading-tight text-ink-100">
+          <h1 className="mt-1 max-w-3xl truncate text-2xl font-extrabold tracking-tight text-ink-100">
             {job.source?.title || 'Untitled'}
           </h1>
           {job.source && (
-            <p className="numeric mt-2 text-xs text-ink-500">
+            <p className="numeric mt-1 text-xs font-medium text-ink-500">
               {formatDuration(job.source.duration_s)}
               {job.source.width ? ` · ${job.source.width}×${job.source.height}` : ''} ·{' '}
               {job.provider}
@@ -76,10 +76,10 @@ export function JobProgress() {
           )}
         </div>
 
-        <div className="flex items-baseline gap-8">
-          <span className="numeric font-display text-[clamp(2.5rem,6vw,4rem)] leading-none text-sodium-500">
+        <div className="flex items-center gap-6">
+          <span className="numeric text-4xl font-extrabold leading-none text-sodium-500">
             {percent}
-            <span className="text-2xl text-ink-600">%</span>
+            <span className="text-xl text-ink-500">%</span>
           </span>
           {(job.status === 'running' || job.status === 'queued') && (
             <button onClick={cancel} disabled={cancelling} className="btn btn-ghost">
@@ -88,19 +88,19 @@ export function JobProgress() {
           )}
           {(job.status === 'failed' || job.status === 'cancelled') && (
             <button onClick={retry} className="btn btn-primary">
-              Retry
+              Retry Job
             </button>
           )}
           {job.status === 'done' && (
             <button onClick={() => navigate(`/jobs/${job.id}/clips`)} className="btn btn-primary">
-              Review clips
+              Review Clips →
             </button>
           )}
         </div>
       </div>
 
       {job.error && (
-        <div className="mt-8 max-w-3xl">
+        <div className="studio-card max-w-3xl p-5">
           <ErrorNote error={new Error(job.error)} />
           <p className="mt-3 text-xs text-ink-500">
             Retrying resumes from the stage that failed — finished stages are not redone.
@@ -109,12 +109,12 @@ export function JobProgress() {
       )}
 
       {actionError && (
-        <div className="mt-8 max-w-3xl">
+        <div className="studio-card max-w-3xl p-5">
           <ErrorNote error={actionError} onDismiss={() => setActionError(null)} />
         </div>
       )}
 
-      <ol className="mt-12 max-w-3xl">
+      <ol className="studio-card max-w-3xl divide-y divide-ink-800 px-6 py-2">
         {STAGES.map((stage, index) => {
           // A failed job stopped *at* current_stage, so that stage must read as
           // failed rather than as still running — otherwise the checklist claims

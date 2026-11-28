@@ -85,8 +85,6 @@ export function Review() {
       .getClipWords(selected.id)
       .then(setWords)
       .catch(() => setWords([]))
-    // 404 is expected for audio-only sources and jobs that never reframed; the
-    // player falls back to a centre crop, matching what the renderer does.
     api
       .getCropPath(selected.id)
       .then(setCropPath)
@@ -160,7 +158,6 @@ export function Review() {
     setExporting((current) => new Set(current).add(clip.id))
     setError(null)
     try {
-      // Auto-save edited caption words so users don't accidentally export stale text.
       if (clip.id === selectedId && wordsDirty) {
         patchClip(await api.patchCaptions(clip.id, { words }))
         setWordsDirty(false)
@@ -244,90 +241,90 @@ export function Review() {
 
   if (error && clips.length === 0) {
     return (
-      <div className="max-w-3xl pt-24">
+      <div className="max-w-3xl pt-12">
         <ErrorNote error={error} />
       </div>
     )
   }
 
-  if (!job) return <p className="pt-24 text-sm text-ink-500">Loading…</p>
+  if (!job) return <p className="pt-12 text-sm text-[#737168]">Loading studio…</p>
+
+  const latestExport = selected?.exports[0] ?? null
 
   return (
-    <div className="pt-10">
-      <div className="flex flex-wrap items-baseline justify-between gap-4 border-b border-ink-800 pb-5">
+    <div className="space-y-5">
+      {/* Top Studio Header Card */}
+      <div className="studio-card flex flex-wrap items-center justify-between gap-4 px-6 py-4">
         <div className="min-w-0">
-          <Link to="/" className="eyebrow transition-colors hover:text-sodium-500">
-            ← All jobs
-          </Link>
-          <h1 className="mt-2 max-w-2xl truncate font-display text-[clamp(1.5rem,3vw,2.25rem)] leading-tight text-ink-100">
-            {job.source?.title || 'Untitled'}
+          <div className="flex items-center gap-2">
+            <Link
+              to="/"
+              className="numeric text-xs font-bold uppercase tracking-wider text-[#E11D48] hover:underline"
+            >
+              ← All Sessions
+            </Link>
+            <span className="text-xs text-[#D2CFC6]">•</span>
+            <span className="numeric text-xs font-medium text-[#737168]">
+              {clips.length} Clips · {keptCount} Kept · {exportedCount} MP4
+            </span>
+          </div>
+          <h1 className="mt-1 max-w-2xl truncate text-xl font-extrabold tracking-tight text-[#171715]">
+            {job.source?.title || 'Untitled Episode'}
           </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="numeric mr-2 text-xs text-ink-400">
-            {clips.length} clips · {keptCount} kept · {exportedCount} exported
-          </span>
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
+            type="button"
             onClick={exportKept}
             disabled={keptCount === 0 || batchExport !== null}
             className="btn btn-ghost"
           >
             {batchExport?.kind === 'kept'
               ? `Exporting ${batchExport.done}/${batchExport.total}…`
-              : `Export kept (${keptCount})`}
+              : `Export Kept (${keptCount})`}
           </button>
           <button
+            type="button"
             onClick={exportAll}
             disabled={exportableCount === 0 || batchExport !== null}
             className="btn btn-primary"
           >
             {batchExport?.kind === 'all'
               ? `Exporting ${batchExport.done}/${batchExport.total}…`
-              : `Export all (${exportableCount})`}
+              : `Export All (${exportableCount} Clips)`}
           </button>
           {exportedCount > 0 && (
             <a
               href={api.jobExportsZipUrl(job.id)}
               download
-              className="btn btn-ghost border-sodium-500/60 text-sodium-400 hover:border-sodium-400"
-              title="Download all exported MP4 clips as a single ZIP archive"
+              className="btn btn-dark"
+              title="Download all rendered MP4 clips as a single ZIP archive"
             >
-              <svg
-                className="size-3.5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span>Download all ({exportedCount} .zip)</span>
+              <span>⬇ Download All (.ZIP)</span>
             </a>
           )}
         </div>
       </div>
 
+      {/* Live Batch Export Progress / Completion Banner */}
       {batchExport && (
         <div
-          className="mt-5 border border-sodium-500/40 bg-ink-850/80 px-4 py-3"
+          className="studio-card border-[#FECDD3] bg-[#FFF1F2] px-5 py-3.5"
           role="status"
           aria-live="polite"
         >
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-ink-100">
+          <div className="flex items-center justify-between text-xs font-bold text-[#9F1239]">
+            <span>
               Rendering clips ({batchExport.done} of {batchExport.total} completed)…
             </span>
-            <span className="numeric text-sodium-500">
+            <span className="numeric">
               {Math.round((batchExport.done / Math.max(1, batchExport.total)) * 100)}%
             </span>
           </div>
-          <div className="mt-2 h-1 w-full overflow-hidden bg-ink-800">
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#FECDD3]">
             <div
-              className="h-full bg-sodium-500 transition-all duration-300"
+              className="h-full bg-[#E11D48] transition-all duration-300"
               style={{
                 width: `${(batchExport.done / Math.max(1, batchExport.total)) * 100}%`,
               }}
@@ -338,28 +335,22 @@ export function Review() {
 
       {!batchExport && batchFinishedCount !== null && (
         <div
-          className="mt-5 flex flex-wrap items-center justify-between gap-4 border border-signal-good/40 bg-signal-good/10 px-4 py-3 text-sm"
+          className="studio-card flex flex-wrap items-center justify-between gap-4 border-[#A7F3D0] bg-[#ECFDF5] px-5 py-3.5 text-sm"
           role="status"
           aria-live="polite"
         >
-          <div className="flex items-center gap-2.5 text-ink-100">
-            <span className="text-signal-good" aria-hidden="true">
-              ✓
-            </span>
-            <span>
-              <strong>{batchFinishedCount} clips</strong> finished rendering. Ready to download
-              individually or as a ZIP bundle.
-            </span>
+          <div className="font-semibold text-[#065F46]">
+            ✓ {batchFinishedCount} clips finished rendering. Ready to download individually or as a
+            ZIP bundle.
           </div>
-          <div className="flex items-center gap-3">
-            <a href={api.jobExportsZipUrl(job.id)} download className="btn btn-primary">
-              Download all (.zip)
+          <div className="flex items-center gap-2.5">
+            <a href={api.jobExportsZipUrl(job.id)} download className="btn btn-dark">
+              ⬇ Download All (.ZIP)
             </a>
             <button
               type="button"
               onClick={() => setBatchFinishedCount(null)}
               className="btn btn-quiet text-xs"
-              aria-label="Dismiss notification"
             >
               Dismiss
             </button>
@@ -367,26 +358,27 @@ export function Review() {
         </div>
       )}
 
-      {error && (
-        <div className="mt-6 max-w-3xl">
-          <ErrorNote error={error} onDismiss={() => setError(null)} />
-        </div>
-      )}
+      {error && <ErrorNote error={error} onDismiss={() => setError(null)} />}
 
       {clips.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="mt-8 grid gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,20rem)_minmax(0,26rem)_minmax(0,1fr)]">
-          {/* Ranked list */}
-          <section className="lg:max-h-[76vh] lg:overflow-y-auto lg:pr-1">
-            <div className="flex items-baseline justify-between border-b border-ink-800 pb-2">
-              <p className="eyebrow">Ranked</p>
-              <span className="hidden text-[11px] text-ink-500 sm:inline">↑↓ or J/K</span>
+        <div className="grid gap-5 lg:grid-cols-[340px_430px_1fr]">
+          {/* COLUMN 1: Ranked Highlights with Thumbnail Cards */}
+          <section className="studio-card flex flex-col p-4 lg:max-h-[calc(100vh-148px)]">
+            <div className="mb-3 flex items-center justify-between px-1">
+              <span className="text-sm font-bold text-[#171715]">
+                Ranked Highlights ({clips.length})
+              </span>
+              <span className="numeric text-xs text-[#737168]">
+                {keptCount} Kept · {exportedCount} MP4
+              </span>
             </div>
-            <ul>
+
+            <ul className="space-y-2 overflow-y-auto pr-1">
               {clips.map((clip, index) => (
                 <li key={clip.id}>
-                  <ClipRow
+                  <ClipCard
                     clip={clip}
                     index={index}
                     selected={clip.id === selectedId}
@@ -403,10 +395,20 @@ export function Review() {
             </ul>
           </section>
 
-          {/* Player + trim */}
-          <section className="space-y-8">
+          {/* COLUMN 2: High-Contrast Dark Theater Stage */}
+          <section className="flex flex-col justify-between rounded-[20px] bg-[#141413] p-5 text-white shadow-md">
             {selected && jobId && (
               <>
+                <div className="mb-3 flex items-center justify-between text-xs text-[#A1A09A]">
+                  <span className="numeric font-semibold tracking-wider">
+                    PREVIEW {selected.ratio} · 1080P
+                  </span>
+                  <span className="numeric flex items-center gap-1.5 font-semibold text-[#FB7185]">
+                    <span className="size-1.5 rounded-full bg-[#F43F5E]" />
+                    LIVE OVERLAYS
+                  </span>
+                </div>
+
                 <ClipPlayer
                   src={api.mediaUrl(jobId)}
                   startS={selected.start_s}
@@ -435,29 +437,35 @@ export function Review() {
                   }
                   watermarkText={includeWatermark ? resolvedWatermarkText : null}
                 />
-                <TrimBar
-                  words={words}
-                  startS={selected.start_s}
-                  endS={selected.end_s}
-                  originalStart={selected.start_s}
-                  originalEnd={selected.end_s}
-                  onCommit={commitTrim}
-                />
+
+                <div className="mt-4 rounded-xl border border-[#2E2E2B] bg-[#1E1E1C] p-3">
+                  <TrimBar
+                    words={words}
+                    startS={selected.start_s}
+                    endS={selected.end_s}
+                    originalStart={selected.start_s}
+                    originalEnd={selected.end_s}
+                    onCommit={commitTrim}
+                  />
+                </div>
               </>
             )}
           </section>
 
-          {/* Editor + style */}
-          <section className="space-y-10">
+          {/* COLUMN 3: Inspector, Overlays & Speaker Dialogue */}
+          <section className="studio-card flex flex-col justify-between gap-5 p-5">
             {selected && (
               <>
-                <div>
-                  <label className="block">
-                    <div className="flex items-baseline justify-between">
-                      <span className="eyebrow">Clip title &amp; Intro Hook</span>
-                      {titleSaved && (
-                        <span className="text-xs font-medium text-signal-good">Saved ✓</span>
-                      )}
+                <div className="space-y-5">
+                  {/* Intro Hook Headline Input */}
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="eyebrow">
+                        Intro Hook Headline (First {introSettings?.duration_s ?? 3}s)
+                      </span>
+                      <span className="text-xs font-bold text-[#059669]">
+                        {titleSaved ? '✓ Saved' : '✓ Auto-saved'}
+                      </span>
                     </div>
                     <input
                       type="text"
@@ -465,171 +473,109 @@ export function Review() {
                       onChange={(e) => setIntroText(e.target.value)}
                       onBlur={() => void commitTitle(selected, introText)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.currentTarget.blur()
-                        }
+                        if (e.key === 'Enter') e.currentTarget.blur()
                       }}
                       placeholder="Edit clip title / intro hook…"
-                      className="field mt-1.5 text-sm font-medium text-ink-100"
+                      className="w-full rounded-xl border-[1.5px] border-[#171715] bg-[#FAF9F6] px-3.5 py-2.5 text-[14.5px] font-bold text-[#171715] outline-none transition-colors focus:bg-white"
                     />
-                    <span className="mt-1 block text-xs text-ink-500">
-                      Press Enter or click outside to save — used for the Intro Hook banner and
-                      export filename.
-                    </span>
-                  </label>
+                  </div>
 
-                  <p className="eyebrow mt-6">Why this clip</p>
-                  <p className="mt-2 max-w-prose text-[0.9375rem] leading-relaxed text-ink-300">
-                    {selected.reason || 'No rationale returned for this clip.'}
-                  </p>
-                  {selected.hook && (
-                    <p className="mt-3 border-l-2 border-ink-700 pl-3 font-display text-lg italic text-ink-200">
-                      “{selected.hook}”
+                  {/* 3 Tactile Overlay Toggle Pills */}
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <OverlayPill
+                      label="Intro Hook"
+                      active={includeIntro}
+                      onToggle={() => setIncludeIntro((v) => !v)}
+                    />
+                    <OverlayPill
+                      label="@Watermark"
+                      active={includeWatermark}
+                      onToggle={() => setIncludeWatermark((v) => !v)}
+                    />
+                    <OverlayPill
+                      label="YT Outro"
+                      active={includeOutro}
+                      onToggle={() => setIncludeOutro((v) => !v)}
+                    />
+                  </div>
+
+                  {/* Compact Caption Style + Aspect Ratio Row */}
+                  <div className="grid gap-3 rounded-xl border border-[#EAE8E1] bg-[#FAF9F6] p-3 sm:grid-cols-[1fr_auto]">
+                    <label className="block">
+                      <span className="eyebrow block">Caption Style</span>
+                      <select
+                        value={selected.caption_style}
+                        onChange={(e) => void setStyle(selected, e.target.value)}
+                        className="mt-1 w-full cursor-pointer rounded-lg border border-[#D8D5CC] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#171715]"
+                      >
+                        {styles.map((s) => (
+                          <option key={s.key} value={s.key}>
+                            {s.label} — {s.description}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div>
+                      <span className="eyebrow block">Aspect Ratio</span>
+                      <div className="mt-1 flex gap-1">
+                        {RATIOS.map((ratio) => (
+                          <button
+                            key={ratio}
+                            type="button"
+                            onClick={() => void setRatio(selected, ratio)}
+                            className={[
+                              'numeric cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-bold transition-colors',
+                              ratio === selected.ratio
+                                ? 'bg-[#171715] text-white'
+                                : 'border border-[#D8D5CC] bg-white text-[#57564F] hover:text-[#171715]',
+                            ].join(' ')}
+                          >
+                            {ratio}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Speaker Dialogue Editor */}
+                  <CaptionEditor
+                    words={words}
+                    onChange={(next) => {
+                      setWords(next)
+                      setWordsDirty(true)
+                    }}
+                    onSave={saveWords}
+                    saving={savingWords}
+                    dirty={wordsDirty}
+                  />
+
+                  {selected.reason && (
+                    <p className="rounded-xl border border-[#EAE8E1] bg-[#FAF9F6] px-3.5 py-2.5 text-xs leading-relaxed text-[#57564F]">
+                      <strong className="text-[#171715]">Why selected:</strong> {selected.reason}
                     </p>
                   )}
                 </div>
 
-                <CaptionEditor
-                  words={words}
-                  onChange={(next) => {
-                    setWords(next)
-                    setWordsDirty(true)
-                  }}
-                  onSave={saveWords}
-                  saving={savingWords}
-                  dirty={wordsDirty}
-                />
-
-                <div>
-                  <p className="eyebrow border-b border-ink-800 pb-2">Caption style</p>
-                  <div className="mt-3 space-y-1">
-                    {styles.map((style) => (
-                      <button
-                        key={style.key}
-                        onClick={() => setStyle(selected, style.key)}
-                        className={[
-                          'block w-full border-l-2 py-2 pl-3 text-left transition-colors duration-200',
-                          style.key === selected.caption_style
-                            ? 'border-sodium-500 bg-ink-850/60'
-                            : 'border-transparent hover:border-ink-700 hover:bg-ink-850/30',
-                        ].join(' ')}
-                      >
-                        <span className="text-sm text-ink-100">{style.label}</span>
-                        <span className="mt-0.5 block text-xs leading-snug text-ink-500">
-                          {style.description}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="eyebrow border-b border-ink-800 pb-2">Aspect ratio</p>
-                  <div className="mt-3 flex gap-2">
-                    {RATIOS.map((ratio) => (
-                      <button
-                        key={ratio}
-                        onClick={() => setRatio(selected, ratio)}
-                        className={[
-                          'numeric btn',
-                          ratio === selected.ratio ? 'btn-primary' : 'btn-ghost',
-                        ].join(' ')}
-                      >
-                        {ratio}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="border-t border-ink-800 pt-6">
-                  <div className="mb-4 space-y-2.5">
-                    <div className="flex items-baseline justify-between">
-                      <span className="eyebrow">Overlays</span>
-                      <Link
-                        to="/settings"
-                        className="text-xs text-ink-500 underline underline-offset-4 hover:text-sodium-500"
-                      >
-                        configure
-                      </Link>
-                    </div>
-
-                    <label className="flex cursor-pointer items-center gap-2.5 text-sm text-ink-200">
-                      <input
-                        type="checkbox"
-                        checked={includeIntro}
-                        onChange={(e) => setIncludeIntro(e.target.checked)}
-                        className="size-4 accent-sodium-500"
-                      />
-                      Intro Hook banner ({introSettings?.duration_s ?? 3}s)
-                    </label>
-
-                    <label className="flex cursor-pointer items-center gap-2.5 text-sm text-ink-200">
-                      <input
-                        type="checkbox"
-                        checked={includeWatermark}
-                        onChange={(e) => setIncludeWatermark(e.target.checked)}
-                        className="size-4 accent-sodium-500"
-                      />
-                      <span>
-                        Channel watermark
-                        {resolvedWatermarkText && (
-                          <span className="ml-1.5 text-xs text-ink-500">
-                            ({resolvedWatermarkText})
-                          </span>
-                        )}
-                      </span>
-                    </label>
-
-                    <label className="flex cursor-pointer items-center gap-2.5 text-sm text-ink-200">
-                      <input
-                        type="checkbox"
-                        checked={includeOutro}
-                        onChange={(e) => setIncludeOutro(e.target.checked)}
-                        className="size-4 accent-sodium-500"
-                      />
-                      YouTube CTA outro overlay
-                    </label>
-                  </div>
-
+                {/* Bottom Render & Download Row */}
+                <div className="flex flex-wrap items-center gap-2.5 border-t border-[#EAE8E1] pt-4">
                   <button
-                    onClick={() => exportClip(selected)}
+                    type="button"
+                    onClick={() => void exportClip(selected)}
                     disabled={exporting.has(selected.id)}
-                    className="btn btn-primary w-full"
+                    className="btn btn-primary flex-1 py-3 text-sm"
                   >
-                    {exporting.has(selected.id) ? 'Rendering…' : 'Export this clip'}
+                    {exporting.has(selected.id) ? 'Rendering Clip…' : 'Render This Clip'}
                   </button>
 
-                  {selected.exports.length > 0 && (
-                    <ul className="mt-4 space-y-2">
-                      {selected.exports.map((record) => (
-                        <li key={record.id}>
-                          <a
-                            href={record.download_url}
-                            download
-                            className="flex items-center justify-between gap-3 border border-ink-800 bg-ink-850/60 px-3 py-2 text-xs transition-colors hover:border-sodium-500/60 hover:bg-ink-850"
-                          >
-                            <span className="flex items-center gap-2 font-medium text-sodium-400">
-                              <svg
-                                className="size-3.5 shrink-0"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                aria-hidden="true"
-                              >
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="7 10 12 15 17 10" />
-                                <line x1="12" y1="15" x2="12" y2="3" />
-                              </svg>
-                              Download {record.ratio} · {record.style}
-                            </span>
-                            <span className="numeric shrink-0 text-ink-400">
-                              {formatBytes(record.size_bytes)}
-                            </span>
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
+                  {latestExport && (
+                    <a
+                      href={latestExport.download_url}
+                      download
+                      className="btn btn-ghost py-3 text-xs font-bold"
+                    >
+                      ⬇ MP4 ({formatBytes(latestExport.size_bytes)})
+                    </a>
                   )}
                 </div>
               </>
@@ -641,7 +587,36 @@ export function Review() {
   )
 }
 
-function ClipRow({
+function OverlayPill({
+  label,
+  active,
+  onToggle,
+}: {
+  label: string
+  active: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={active}
+      className={[
+        'flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2.5 text-xs font-bold transition-all',
+        active
+          ? 'border-[#FECDD3] bg-[#FFF1F2] text-[#171715]'
+          : 'border-[#E2E0D8] bg-[#FAF9F6] text-[#737168] hover:border-[#D0CEC4]',
+      ].join(' ')}
+    >
+      <span className="truncate">{label}</span>
+      <span className={active ? 'text-[#E11D48]' : 'text-[#8C8A80]'}>
+        {active ? 'ON' : 'OFF'}
+      </span>
+    </button>
+  )
+}
+
+function ClipCard({
   clip,
   index,
   selected,
@@ -656,16 +631,11 @@ function ClipRow({
   onKeep: () => void
   onDiscard: () => void
 }) {
+  const [thumbFailed, setThumbFailed] = useState(false)
+  const latestExport = clip.exports[0] ?? null
+
   return (
     <div
-      className={[
-        'rise group grid cursor-pointer grid-cols-[2.25rem_1fr] gap-x-3 border-b border-l-2 border-b-ink-850 py-3 pl-2.5 transition-colors duration-200',
-        selected
-          ? 'border-l-sodium-500 bg-ink-850/85'
-          : 'border-l-transparent hover:bg-ink-850/40',
-        clip.status === 'discarded' ? 'opacity-40' : '',
-      ].join(' ')}
-      style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
       onClick={onSelect}
       role="button"
       tabIndex={0}
@@ -676,32 +646,48 @@ function ClipRow({
           onSelect()
         }
       }}
+      style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}
+      className={[
+        'rise grid cursor-pointer grid-cols-[56px_1fr] gap-3 rounded-xl border p-2.5 transition-all',
+        selected
+          ? 'border-[#FECDD3] bg-[#FFF1F2] shadow-2xs'
+          : 'border-[#ECEAE2] bg-white hover:border-[#D8D5CC] hover:bg-[#FAF9F6]',
+        clip.status === 'discarded' ? 'opacity-45' : '',
+      ].join(' ')}
     >
-      {/* The score is the thing you scan by, so it gets the display face. */}
-      <span
-        className={[
-          'numeric self-start font-display text-2xl leading-none',
-          clip.score >= 85 ? 'text-sodium-500' : selected ? 'text-ink-200' : 'text-ink-500',
-        ].join(' ')}
-      >
-        {clip.score}
-      </span>
+      {/* 9:16 Vertical Thumbnail with Score Badge */}
+      <div className="relative h-[88px] w-[56px] overflow-hidden rounded-lg bg-[#171715]">
+        {!thumbFailed && (
+          <img
+            src={api.clipThumbnailUrl(clip.id)}
+            alt=""
+            loading="lazy"
+            onError={() => setThumbFailed(true)}
+            className="size-full object-cover"
+          />
+        )}
+        <span
+          className={[
+            'numeric absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-extrabold leading-none text-white shadow-xs',
+            selected || clip.score >= 88 ? 'bg-[#E11D48]' : 'bg-[#171715]/85',
+          ].join(' ')}
+        >
+          {clip.score}
+        </span>
+      </div>
 
-      <div className="min-w-0">
-        <p className="truncate text-[0.9375rem] leading-snug text-ink-100">
+      <div className="flex min-w-0 flex-col justify-between py-0.5">
+        <p className="line-clamp-2 text-[13.5px] font-bold leading-snug text-[#171715]">
           {clip.title || 'Untitled clip'}
         </p>
-        <div className="mt-1.5 flex items-center gap-2.5">
-          <span className="numeric text-xs text-ink-400">{formatDuration(clip.duration_s)}</span>
-          {clip.user_trimmed && <span className="text-xs text-ink-500">trimmed</span>}
-          {clip.exports.length > 0 && (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-signal-good">
-              <span className="size-1.5 rounded-full bg-signal-good" aria-hidden />
-              exported
-            </span>
-          )}
 
-          <span className="ml-auto flex items-center gap-1.5 pr-2">
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className="numeric truncate text-[11.5px] font-medium text-[#57564F]">
+            {formatDuration(clip.duration_s)}
+            {latestExport ? ` · ${formatBytes(latestExport.size_bytes)}` : ''}
+          </span>
+
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={(e) => {
@@ -709,13 +695,13 @@ function ClipRow({
                 onKeep()
               }}
               className={[
-                'cursor-pointer px-2 py-0.5 text-xs font-medium transition-colors',
+                'cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-bold transition-colors',
                 clip.status === 'kept'
-                  ? 'border border-signal-good/40 bg-signal-good/15 text-signal-good'
-                  : 'text-ink-400 hover:bg-ink-800 hover:text-ink-100',
+                  ? 'bg-[#D1FAE5] text-[#065F46]'
+                  : 'border border-[#DCD9D0] bg-white text-[#57564F] hover:border-[#171715] hover:text-[#171715]',
               ].join(' ')}
             >
-              {clip.status === 'kept' ? '✓ kept' : 'keep'}
+              {clip.status === 'kept' ? '✓ Kept' : 'Keep'}
             </button>
             <button
               type="button"
@@ -723,11 +709,12 @@ function ClipRow({
                 e.stopPropagation()
                 onDiscard()
               }}
-              className="cursor-pointer px-2 py-0.5 text-xs text-ink-400 transition-colors hover:bg-ink-800 hover:text-signal-bad"
+              className="cursor-pointer rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#737168] hover:bg-[#FEE2E2] hover:text-[#DC2626]"
+              title={clip.status === 'discarded' ? 'Restore clip' : 'Drop clip'}
             >
-              {clip.status === 'discarded' ? 'undo' : 'drop'}
+              {clip.status === 'discarded' ? 'Undo' : '×'}
             </button>
-          </span>
+          </div>
         </div>
       </div>
     </div>
@@ -736,15 +723,15 @@ function ClipRow({
 
 function EmptyState() {
   return (
-    <div className="max-w-xl pt-20">
-      <h2 className="font-display text-3xl text-ink-200">No clips came back.</h2>
-      <p className="mt-4 text-sm leading-relaxed text-ink-400">
-        The model found nothing self-contained enough to stand alone — which is a real
-        answer for some source material, not necessarily a failure.
+    <div className="studio-card max-w-xl p-8">
+      <h2 className="text-2xl font-extrabold text-[#171715]">No clips came back.</h2>
+      <p className="mt-3 text-sm leading-relaxed text-[#57564F]">
+        The model found nothing self-contained enough to stand alone — which is a real answer for
+        some source material, not necessarily a failure.
       </p>
-      <p className="mt-3 text-sm leading-relaxed text-ink-400">
-        If you expected clips, try a larger provider model, or widen the length range so
-        shorter moments qualify.
+      <p className="mt-2 text-sm leading-relaxed text-[#57564F]">
+        If you expected clips, try a larger provider model, or widen the length range so shorter
+        moments qualify.
       </p>
     </div>
   )

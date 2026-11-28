@@ -99,29 +99,30 @@ export function TrimBar({
 
   return (
     <div className="select-none">
-      <div className="flex items-baseline justify-between">
-        <span className="eyebrow">Trim</span>
-        <span className="numeric text-xs text-ink-400">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="numeric font-bold uppercase tracking-wider text-[#A1A09A]">Trim</span>
+        <span className="numeric text-[#D4D3CD]">
           {formatTimecode(local.start)} → {formatTimecode(local.end)}
-          <span className="ml-3 text-sodium-500">{duration.toFixed(1)}s</span>
+          <span className="ml-2.5 font-bold text-[#FB7185]">Duration: {duration.toFixed(1)}s</span>
         </span>
       </div>
 
-      <div ref={track} className="relative mt-3 h-14 cursor-ew-resize bg-ink-850">
-        {/* Word density as a crude waveform stand-in: taller where speech is
-            dense, which is enough to aim a cut by. */}
-        <div className="absolute inset-0 flex items-end gap-px overflow-hidden px-px opacity-60">
+      <div
+        ref={track}
+        className="relative mt-2 h-9 cursor-ew-resize overflow-hidden rounded-lg bg-[#121211]"
+      >
+        <div className="absolute inset-0 flex items-end gap-px overflow-hidden px-px opacity-50">
           {buildDensity(words, windowStart, windowEnd, 90).map((value, index) => (
             <div
               key={index}
-              className="flex-1 bg-ink-700"
-              style={{ height: `${12 + value * 78}%` }}
+              className="flex-1 bg-[#3F3F3B]"
+              style={{ height: `${14 + value * 76}%` }}
             />
           ))}
         </div>
 
         <div
-          className="absolute inset-y-0 bg-sodium-700/25"
+          className="absolute inset-y-0 bg-[#E11D48]/30"
           style={{ left: `${left * 100}%`, right: `${(1 - right) * 100}%` }}
         />
 
